@@ -117,7 +117,12 @@ function startApp(isDemo) {
   scene = scene || createScene($('#stage'), {
     onShelfPick: item => playShelfItem(item),
     onShelfHover: (item, pos) => showTip(item, pos),
-    onDiscFlip: () => $('#disc-hint').style.opacity = 0,
+    onControl: a => {
+      if (a === 'play') player.togglePlay(); else if (a === 'next') player.next(); else if (a === 'prev') player.previous();
+      else if (a === 'shuffle') player.toggleShuffle(); else if (a === 'repeat') player.cycleRepeat(); else if (a === 'love') toggleLike();
+    },
+    onVolume: v => setVolume(v),
+    onSeek: frac => { const d = player.state.duration || 0; if (d) player.seek(frac * d); },
   });
 
   player = demo ? new DemoPlayer() : new Player();
@@ -134,7 +139,6 @@ function startApp(isDemo) {
   if (demo) { scene.setShelf(demoShelf()); renderAccount({ display_name: 'Demo listener' }); }
   else { loadShelf(); Spotify.me().then(renderAccount).catch(reportError); }
   requestAnimationFrame(tick);
-  $('#disc-hint').hidden = false; setTimeout(() => $('#disc-hint').style.opacity = 0, 9000);
 }
 
 window.addEventListener('spotify:ratelimited', e => toast(`Spotify asked us to slow down. Retrying in ${Math.ceil(e.detail.delay / 1000)}s…`, { ms: Math.min(8000, e.detail.delay + 500) }));
@@ -150,84 +154,87 @@ function renderAccount(me) {
 }
 
 /* ------------------------------------------------------------------ now playing */
+let lastPick = null; // { key, at } — lets a Liked Songs disc stay put when playback has no context
+function sourceKeyFor(s, item) {
+  if (s.context) return s.context;
+  if (lastPick && Date.now() - lastPick.at < 10 * 60_000) return lastPick.key;
+  return item.album?.uri || item.uri;
+}
+function pushTransport() {
+  const s = player.state, item = s.item;
+  scene.setPlaying(s.playing);
+  scene.setTransport({
+    playing: s.playing, shuffle: s.shuffle, repeat: s.repeat, liked: item ? !!likedKnown.get(item.uri) : false,
+    volume: s.device?.volume, device: s.device?.name ? `▸ ${s.device.name}` : '',
+    title: item?.name, sub: item ? [artistNames(item.artists), item.album?.name].filter(Boolean).join(' — ') : '', dur: fmt(s.duration),
+  });
+  const btn = $('#a11y-play'); btn.textContent = s.playing ? 'Pause' : 'Play';
+  $('#device-name').textContent = s.device?.name || 'Devices'; $('#device-pill').classList.toggle('active', !!s.device);
+  $('#a11y-like').setAttribute('aria-pressed', String(item ? !!likedKnown.get(item.uri) : false));
+}
 function renderState(s) {
   const item = s.item;
-  $('#btn-play').classList.toggle('playing', s.playing);
-  $('#play-icon use').setAttribute('href', s.playing ? '#i-pause' : '#i-play');
-  $('#btn-play').setAttribute('aria-label', s.playing ? 'Pause' : 'Play');
-  $('#btn-shuffle').setAttribute('aria-pressed', String(!!s.shuffle));
-  $('#btn-repeat').dataset.state = s.repeat; $('#btn-repeat').setAttribute('aria-label', `Repeat: ${s.repeat}`);
-  $('#device-name').textContent = s.device?.name ? (demo ? s.device.name : `Playing on ${s.device.name}`) : 'Choose a device';
-  $('#device-pill').classList.toggle('active', !!s.device);
-  if (s.device && Number.isFinite(s.device.volume) && document.activeElement !== $('#volume')) $('#volume').value = s.device.volume;
-  scene.setPlaying(s.playing);
-
+  pushTransport();
   if (!s.trackChanged && nowNp) return;
-  if (!item) { scene.setNowPlaying(null); return; }
+  if (!item) { scene.setNowPlaying(null); $('#np-pill').hidden = true; return; }
 
   const art = pickImage(item.album?.images, 640);
-  const artEl = $('#art');
-  if (art) { if (artEl.src !== art) artEl.src = art; $('#art-link').classList.add('has-art'); artEl.alt = `Cover of ${item.album?.name || item.name}`; }
-  else { artEl.removeAttribute('src'); $('#art-link').classList.remove('has-art'); }
-  $('#art-link').href = item.album?.url || item.url || ''; if (!item.album?.url && !item.url) $('#art-link').removeAttribute('href');
-  for (const t of $$('[data-np=title]')) { t.textContent = item.name; t.title = item.name; item.url ? t.href = item.url : t.removeAttribute('href'); }
-  for (const ar of $$('[data-np=artists]')) { ar.replaceChildren(...(item.artists || []).flatMap((a, i) => [i ? ', ' : '', a.url ? h('a', { href: a.url, target: '_blank', rel: 'noopener' }, a.name) : a.name])); ar.title = artistNames(item.artists); }
-  const al = $('#np-album'); al.textContent = item.album?.name || ''; al.title = item.album?.name || ''; item.album?.url ? al.href = item.album.url : al.removeAttribute('href');
-  for (const os of $$('[data-np=open]')) item.url ? os.href = item.url : os.removeAttribute('href');
+  const pill = $('#np-pill'); pill.hidden = false;
+  const t = $('#np-title'); t.textContent = item.name; t.title = item.name; item.url ? t.href = item.url : t.removeAttribute('href');
+  const ar = $('#np-artists'); ar.replaceChildren(...(item.artists || []).flatMap((a, i) => [i ? ', ' : '', a.url ? h('a', { href: a.url, target: '_blank', rel: 'noopener' }, a.name) : a.name])); ar.title = artistNames(item.artists);
+  const os = $('#open-spotify'); item.url ? os.href = item.url : os.removeAttribute('href');
   document.title = `${item.name} · ${artistNames(item.artists)} — Jewelcase`;
 
   const key = item.album?.uri || item.uri;
-  const np = { key, art, trackName: item.name, albumName: item.album?.name, artists: artistNames(item.artists), kind: item.type === 'episode' ? 'Podcast' : 'Album', palette: item.palette || paletteCache.get(art) || null };
+  const sourceKey = sourceKeyFor(s, item);
+  const np = { key, sourceKey, art, trackName: item.name, albumName: item.album?.name, artists: artistNames(item.artists), kind: item.type === 'episode' ? 'Podcast' : 'Album', palette: item.palette || paletteCache.get(art) || null };
   nowNp = np;
   scene.setNowPlaying(np);
-  scene.setHighlight(s.context || key);
+  scene.setHighlight(sourceKey);
   if (np.palette) applyCssPalette(np.palette);
   if (!item.palette) samplePalette(art, key).then(p => { if (nowNp !== np) return; np.palette = p; applyCssPalette(p); scene.refreshPrint(np); });
 
-  // heart state (only for tracks / episodes with URIs)
-  const hearts = $$('[data-np=heart]');
-  const setHeart = v => hearts.forEach(b => b.setAttribute('aria-pressed', String(!!v)));
-  hearts.forEach(b => b.disabled = demo || !item.uri);
-  setHeart(likedKnown.get(item.uri));
   if (!demo && item.uri && !likedKnown.has(item.uri)) {
-    Spotify.libraryContains([item.uri]).then(r => { likedKnown.set(item.uri, !!r?.[0]); if (player.state.item?.uri === item.uri) setHeart(r?.[0]); }).catch(reportError);
+    Spotify.libraryContains([item.uri]).then(r => { likedKnown.set(item.uri, !!r?.[0]); if (player.state.item?.uri === item.uri) pushTransport(); }).catch(reportError);
   }
 }
 
+let lastSec = -1;
 function tick() {
   requestAnimationFrame(tick);
   if (!player) return;
   const pos = player.position, dur = player.state.duration || 0;
-  if (!seeking) $('#seek').value = dur ? Math.round(pos / dur * 1000) : 0;
-  const frac = dur ? (seeking ? $('#seek').value / 1000 : pos / dur) : 0;
-  $('#fill').style.width = `calc(${(frac * 100).toFixed(2)}% - 4px)`;
-  $('#t-pos').textContent = fmt(seeking ? frac * dur : pos);
-  $('#t-dur').textContent = fmt(dur);
+  const sec = Math.floor(pos / 1000);
+  scene.setProgress(dur ? pos / dur : 0, fmt(pos));
+  if (sec !== lastSec) { lastSec = sec; }
 }
 
 /* ------------------------------------------------------------------ transport */
-let seeking = false, volTimer = null;
-$('#btn-play').addEventListener('click', () => player.togglePlay());
-$('#btn-next').addEventListener('click', () => player.next());
-$('#btn-prev').addEventListener('click', () => player.previous());
-$('#btn-shuffle').addEventListener('click', () => player.toggleShuffle());
-$('#btn-repeat').addEventListener('click', () => player.cycleRepeat());
-$('#seek').addEventListener('input', () => { seeking = true; });
-$('#seek').addEventListener('change', () => { seeking = false; player.seek($('#seek').value / 1000 * (player.state.duration || 0)); });
-$('#volume').addEventListener('input', () => { clearTimeout(volTimer); volTimer = setTimeout(() => player.setVolume(+$('#volume').value), 250); });
-const setHearts = v => $$('[data-np=heart]').forEach(b => b.setAttribute('aria-pressed', String(!!v)));
-$$('[data-np=heart]').forEach(btn => btn.addEventListener('click', async () => {
+let volTimer = null;
+function setVolume(v) {
+  if (player.state.device) player.state.device.volume = v;
+  clearTimeout(volTimer); volTimer = setTimeout(() => player.setVolume(v), 220); // one request per pause in turning
+}
+async function toggleLike() {
+  if (demo) { toast('Sign in to save songs to Your Library.', { ms: 2500 }); return; }
   const uri = player.state.item?.uri; if (!uri) return;
-  const was = !!likedKnown.get(uri); likedKnown.set(uri, !was); setHearts(!was);
+  const was = !!likedKnown.get(uri); likedKnown.set(uri, !was); pushTransport();
   try { was ? await Spotify.libraryRemove([uri]) : await Spotify.librarySave([uri]); toast(was ? 'Removed from Your Library' : 'Saved to Your Library', { ms: 2200 }); }
-  catch (e) { likedKnown.set(uri, was); setHearts(was); reportError(e); }
-}));
-$('#shelf-left').addEventListener('click', () => scene.scrollShelf(-1));
-$('#shelf-right').addEventListener('click', () => scene.scrollShelf(1));
+  catch (e) { likedKnown.set(uri, was); pushTransport(); reportError(e); }
+}
+// visually hidden controls: keyboard + screen readers
+$('#a11y-play').addEventListener('click', () => player.togglePlay());
+$('#a11y-prev').addEventListener('click', () => player.previous());
+$('#a11y-next').addEventListener('click', () => player.next());
+$('#a11y-shuffle').addEventListener('click', () => player.toggleShuffle());
+$('#a11y-repeat').addEventListener('click', () => player.cycleRepeat());
+$('#a11y-like').addEventListener('click', () => toggleLike());
+$('#a11y-vol').addEventListener('change', e => { scene.setVolume(+e.target.value); setVolume(+e.target.value); });
 document.addEventListener('keydown', e => {
   if (!player || e.target.closest('input, textarea') || e.metaKey || e.ctrlKey) return;
   if (e.code === 'Space') { e.preventDefault(); player.togglePlay(); }
   else if (e.key === 'n') player.next(); else if (e.key === 'p') player.previous();
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { const v = Math.max(0, Math.min(100, (player.state.device?.volume ?? 60) + (e.key === 'ArrowUp' ? 5 : -5))); scene.setVolume(v); setVolume(v); e.preventDefault(); }
   else if (e.key === '/') { e.preventDefault(); openSheet('search'); }
   else if (e.key === 'Escape') closeAll();
 });
@@ -237,7 +244,7 @@ async function loadShelf() {
   try {
     const [albums, playlists, liked] = await Promise.all([Spotify.savedAlbums(20), Spotify.myPlaylists(20), Spotify.savedTracks(1)]);
     const items = [];
-    if (liked?.total) items.push({ key: 'liked', type: 'liked', title: 'Liked Songs', subtitle: `${liked.total} songs`, kind: 'Collection', palette: ['#8f7cff', '#2a1f6b', '#cfe8ff'] });
+    if (liked?.total) items.push({ key: 'liked', type: 'liked', title: 'Liked Songs', subtitle: `${liked.total} songs`, kind: 'Collection', palette: ['#8f7cff', '#2a1f6b', '#cfe8ff'], art: null });
     for (const it of albums?.items || []) { const a = it.album; if (!a) continue; items.push({ key: a.uri, type: 'album', uri: a.uri, id: a.id, title: a.name, subtitle: artistNames(a.artists), kind: 'Album', images: a.images, art: pickImage(a.images, 300), url: a.external_urls?.spotify }); }
     for (const p of playlists?.items || []) { if (!p) continue; items.push({ key: p.uri, type: 'playlist', uri: p.uri, id: p.id, title: p.name, subtitle: `by ${p.owner?.display_name || 'Spotify'}`, kind: 'Playlist', images: p.images, art: pickImage(p.images, 300), url: p.external_urls?.spotify }); }
     if (!items.length) { toast('Your shelf is empty. Save some albums in Spotify, or use Search.', { ms: 7000 }); return; }
@@ -263,7 +270,8 @@ function showTip(item, pos) {
 
 async function playShelfItem(item) {
   showTip(null);
-  scene.focusShelf(item.key);
+  lastPick = { key: item.key, at: Date.now() };
+  scene.insertFromShelf(item);
   if (item.type === 'liked') {
     try { const r = await Spotify.savedTracks(50); const uris = (r?.items || []).map(x => x.track?.uri).filter(Boolean); if (uris.length) player.playThis({ uris }); }
     catch (e) { reportError(e); }
@@ -286,7 +294,6 @@ $('#btn-devices').addEventListener('click', () => { const open = !$('#pop-device
 $('#device-pill').addEventListener('click', () => { const open = !$('#pop-devices').hidden; closeAll(); if (!open) openDevices(); });
 $('#btn-account').addEventListener('click', () => { const open = !$('#pop-account').hidden; closeAll(); $('#pop-account').hidden = open; });
 $('#btn-signout').addEventListener('click', () => { closeAll(); if (demo) location.reload(); else Auth.signOut('user'); });
-$('#btn-flip').addEventListener('click', () => { closeAll(); scene?.flip(); });
 document.addEventListener('pointerdown', e => {
   if (e.target.closest('.sheet, .popover, .topbar, .deck, .toast, .device-pill')) return;
   if (!$('#pop-devices').hidden || !$('#pop-account').hidden) { $('#pop-devices').hidden = true; $('#pop-account').hidden = true; }

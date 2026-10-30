@@ -75,67 +75,32 @@
       <nav class="top-actions">
         <button class="glass-btn sm" id="btn-search" aria-label="Search"><svg><use href="#i-search"/></svg></button>
         <button class="glass-btn sm" id="btn-library" aria-label="Library"><svg><use href="#i-library"/></svg></button>
-        <button class="glass-btn sm" id="btn-devices" aria-label="Devices"><svg><use href="#i-device"/></svg></button>
+        <button class="device-pill" id="device-pill" title="Choose where to play"><svg><use href="#i-device"/></svg><span id="device-name">Devices</span></button>
+        <button class="glass-btn sm" id="btn-devices" aria-label="Devices" hidden><svg><use href="#i-device"/></svg></button>
         <button class="avatar glass-btn sm" id="btn-account" aria-label="Account"><span id="avatar-initial">·</span></button>
       </nav>
     </header>
 
     <div id="demo-ribbon" class="ribbon" hidden>Demo: not connected to Spotify. <button class="link-btn" id="exit-demo">Sign in</button></div>
 
-    <!-- Now playing: the real artwork, flat, uncropped, nothing on top of it -->
-    <aside class="now glass-panel" id="now" aria-live="polite">
-      <a class="art-link" id="art-link" target="_blank" rel="noopener" aria-label="Open album in Spotify">
-        <img id="art" alt="" width="640" height="640" decoding="async">
-        <div id="art-empty" class="art-empty"><span class="brand-disc lg"></span></div>
-      </a>
-      <div class="meta">
-        <a id="np-title" data-np="title" class="np-title" target="_blank" rel="noopener">Nothing playing</a>
-        <div id="np-artists" data-np="artists" class="np-artists">Pick something from your shelf</div>
-        <a id="np-album" class="np-album" target="_blank" rel="noopener"></a>
-        <div class="meta-actions">
-          <button class="glass-btn xs heart" id="btn-heart" data-np="heart" aria-label="Save to Your Library" aria-pressed="false" disabled><svg><use href="#i-heart"/></svg></button>
-          <a class="open-spotify" id="open-spotify" data-np="open" target="_blank" rel="noopener"><svg><use href="#spotify-icon"/></svg>Open in Spotify</a>
-        </div>
-      </div>
-    </aside>
+    <!-- Small now-playing caption with links back to Spotify -->
+    <div class="np-pill glass-panel" id="np-pill" hidden>
+      <div class="np-text"><a id="np-title" class="np-title" target="_blank" rel="noopener"></a><span id="np-artists" class="np-artists"></span></div>
+      <a class="open-spotify icon-only" id="open-spotify" target="_blank" rel="noopener" aria-label="Open in Spotify" title="Open in Spotify"><svg><use href="#spotify-icon"/></svg></a>
+    </div>
 
-    <div class="disc-hint" id="disc-hint" hidden>Drag the disc to scratch · double-tap to flip</div>
+    <!-- Visually hidden controls for keyboard & screen-reader users (the 3D player is the visual UI) -->
+    <div class="sr-only" role="group" aria-label="Player controls">
+      <button id="a11y-prev">Previous</button><button id="a11y-play">Play</button><button id="a11y-next">Next</button>
+      <button id="a11y-shuffle">Shuffle</button><button id="a11y-repeat">Repeat</button><button id="a11y-like" aria-pressed="false">Save to Your Library</button>
+      <label>Volume <input id="a11y-vol" type="range" min="0" max="100" value="60"></label>
+    </div>
 
     <!-- Shelf arrows + hover card -->
-    <button class="glass-btn sm shelf-nav left" id="shelf-left" aria-label="Scroll shelf left"><svg><use href="#i-left"/></svg></button>
-    <button class="glass-btn sm shelf-nav right" id="shelf-right" aria-label="Scroll shelf right"><svg style="transform:scaleX(-1)"><use href="#i-left"/></svg></button>
     <div class="shelf-tip glass-panel" id="shelf-tip" hidden>
       <img id="tip-art" alt="" width="300" height="300">
       <div><div class="tip-title" id="tip-title"></div><div class="tip-sub" id="tip-sub"></div><div class="tip-hint">Click to play</div></div>
     </div>
-
-    <!-- Transport deck -->
-    <footer class="deck glass-panel">
-      <div class="deck-meta">
-        <div style="min-width:0">
-          <a class="np-title deck-title" data-np="title" target="_blank" rel="noopener">Nothing playing</a>
-          <div class="np-artists" data-np="artists">Pick something from your stack</div>
-        </div>
-        <button class="glass-btn xs heart" data-np="heart" aria-label="Save to Your Library" aria-pressed="false" disabled><svg><use href="#i-heart"/></svg></button>
-        <a class="open-spotify icon-only" data-np="open" target="_blank" rel="noopener" aria-label="Open in Spotify" title="Open in Spotify"><svg><use href="#spotify-icon"/></svg></a>
-      </div>
-      <div class="progress">
-        <span class="time" id="t-pos">0:00</span>
-        <div class="groove"><div class="fill" id="fill"></div><input type="range" id="seek" min="0" max="1000" value="0" aria-label="Seek"></div>
-        <span class="time" id="t-dur">0:00</span>
-      </div>
-      <div class="controls">
-        <button class="glass-btn md toggle" id="btn-shuffle" aria-label="Shuffle" aria-pressed="false"><svg><use href="#i-shuffle"/></svg></button>
-        <button class="glass-btn lg" id="btn-prev" aria-label="Previous"><svg style="transform:scaleX(-1)"><use href="#i-next"/></svg></button>
-        <button class="glass-orb" id="btn-play" aria-label="Play"><svg id="play-icon"><use href="#i-play"/></svg></button>
-        <button class="glass-btn lg" id="btn-next" aria-label="Next"><svg><use href="#i-next"/></svg></button>
-        <button class="glass-btn md toggle" id="btn-repeat" aria-label="Repeat: off" data-state="off"><svg><use href="#i-repeat"/></svg><i class="one">1</i></button>
-      </div>
-      <div class="deck-side">
-        <button class="device-pill" id="device-pill"><svg><use href="#i-device"/></svg><span id="device-name">No device</span></button>
-        <label class="vol"><svg><use href="#i-vol"/></svg><input type="range" id="volume" min="0" max="100" value="60" aria-label="Volume"></label>
-      </div>
-    </footer>
 
     <!-- Sheets -->
     <section class="sheet glass-panel" id="sheet-search" hidden aria-label="Search">
@@ -165,7 +130,6 @@
 
     <section class="popover glass-panel" id="pop-account" hidden aria-label="Account">
       <div class="pop-title" id="account-name">Signed in</div>
-      <button class="row-btn" id="btn-flip"><svg><use href="#i-flip"/></svg>Flip the disc</button>
       <button class="row-btn" id="btn-signout">Sign out</button>
     </section>
   </div>

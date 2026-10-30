@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/RoundedBoxGeometry.js';
+import { createDeck, PW, PH } from './deck.js';
 import { insertTexture, labelTexture, grooveAnisotropyTexture, shadowTexture, paletteFromSeed, loadImage, coverTexture, discArtTexture } from './textures.js';
 
 const DISC_R = 0.6;
@@ -47,7 +48,7 @@ const bgFrag = /* glsl */`
     #include <colorspace_fragment>
   }`;
 
-export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = {}) {
+export function createScene(canvas, { onShelfPick, onShelfHover, onControl, onVolume, onSeek } = {}) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
   const mobile = matchMedia('(pointer: coarse)').matches;
   renderer.setPixelRatio(Math.min(devicePixelRatio, mobile ? 1.6 : 2));
@@ -85,7 +86,7 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
   });
   if ('iridescenceThicknessMinimum' in discMetal) { discMetal.iridescenceThicknessMinimum = 220; discMetal.iridescenceThicknessMaximum = 900; }
   else discMetal.iridescenceThicknessRange = [220, 900];
-  const discClear = new THREE.MeshPhysicalMaterial({ color: '#ffffff', metalness: 0, roughness: 0.06, transmission: 1, thickness: 0.02, ior: 1.58, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+  const discClear = new THREE.MeshPhysicalMaterial({ color: '#dfe6f0', metalness: 0, roughness: 0.06, transparent: true, opacity: 0.35, clearcoat: 1, side: THREE.DoubleSide, depthWrite: false });
   const discMirror = new THREE.MeshPhysicalMaterial({ color: '#d7dbe3', metalness: 1, roughness: 0.05, side: THREE.DoubleSide });
   const plasticDark = new THREE.MeshPhysicalMaterial({ color: '#0b0b0f', metalness: 0, roughness: 0.32, clearcoat: 0.7, clearcoatRoughness: 0.2 });
   const glass = new THREE.MeshPhysicalMaterial({
@@ -109,49 +110,21 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
   const edge = new THREE.Mesh(new THREE.CylinderGeometry(DISC_R, DISC_R, T * 2, 128, 1, true), discMirror); edge.rotation.x = Math.PI / 2; discSpin.add(edge);
   const holeEdge = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, T * 2, 48, 1, true), discClear); holeEdge.rotation.x = Math.PI / 2; discSpin.add(holeEdge);
   disc.userData.pickable = true;
+  disc.visible = false; scene.add(disc);
 
-  /* ---------- jewel case ---------- */
-  const W = 1.42, H = 1.25;
-  const jewel = new THREE.Group();
-  const tray = new THREE.Mesh(new RoundedBoxGeometry(W - 0.06, H, 0.06, 3, 0.012), plasticDark); tray.position.set(0.03, 0, -0.03); jewel.add(tray);
-  // rosette (centre hub teeth)
-  const rosette = new THREE.Group();
-  const hubRing = new THREE.Mesh(new THREE.TorusGeometry(0.11, 0.009, 10, 48), plasticDark); rosette.add(hubRing);
-  for (let i = 0; i < 12; i++) {
-    const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.045, 0.012), plasticDark);
-    const a = i / 12 * Math.PI * 2; tooth.position.set(Math.cos(a) * 0.075, Math.sin(a) * 0.075, 0.003); tooth.rotation.z = a + Math.PI / 2; rosette.add(tooth);
-  }
-  rosette.position.set(0.03, 0, 0.0); jewel.add(rosette);
-  // tray ridge (circular recess rim)
-  const recess = new THREE.Mesh(new THREE.TorusGeometry(DISC_R + 0.015, 0.008, 8, 128), plasticDark); recess.position.set(0.03, 0, 0.003); jewel.add(recess);
-  // spine
-  const spine = new THREE.Mesh(new RoundedBoxGeometry(0.06, H, 0.1, 3, 0.012), glass); spine.position.set(-W / 2 + 0.03, 0, -0.005); jewel.add(spine);
-
-  // lid (hinged at the left edge)
-  const lidPivot = new THREE.Group(); lidPivot.position.set(-W / 2, 0, 0.03); jewel.add(lidPivot);
-  const lid = new THREE.Group(); lid.position.x = W / 2; lidPivot.add(lid);
-  const lidGlass = new THREE.Mesh(new RoundedBoxGeometry(W, H, 0.022, 3, 0.008), glass); lid.add(lidGlass);
-  const insertMat = new THREE.MeshPhysicalMaterial({ roughness: 0.5, metalness: 0, side: THREE.DoubleSide });
-  const insert = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), insertMat); insert.position.set(0.05, 0, -0.0135); lid.add(insert);
-  // insert back (inside of booklet)
-  const insertBack = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), new THREE.MeshStandardMaterial({ color: '#f1ece2', roughness: 0.9 }));
-  insertBack.rotation.y = Math.PI; insertBack.position.set(0.05, 0, -0.0145); lid.add(insertBack);
-
-  const hero = new THREE.Group(); hero.add(jewel); hero.add(disc); scene.add(hero);
-  disc.position.set(0.03, 0, 0.012);
-
-  // contact shadow
+  /* ---------- the player ---------- */
+  const deck = createDeck();
+  const player = new THREE.Group(); player.add(deck.group); scene.add(player);
   const shadowTex = shadowTexture();
-  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.7), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
-  shadow.rotation.x = -Math.PI / 2; scene.add(shadow);
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(PW * 1.2, 0.8), new THREE.MeshBasicMaterial({ map: shadowTex, transparent: true, depthWrite: false }));
+  shadow.rotation.x = -Math.PI / 2; shadow.position.set(0, -PH / 2 - 0.08, 0.05); player.add(shadow);
 
-  /* ---------- shelf ---------- */
+  /* ---------- shelf / album stack ---------- */
   const shelf = new THREE.Group(); scene.add(shelf);
   const plank = new THREE.Mesh(new RoundedBoxGeometry(9, 0.03, 0.42, 2, 0.012), new THREE.MeshPhysicalMaterial({ color: '#cfe0ff', roughness: 0.05, metalness: 0, transparent: true, opacity: 0.18, clearcoat: 1, depthWrite: false }));
   const plankEdge = new THREE.Mesh(new THREE.BoxGeometry(9, 0.004, 0.004), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.55 }));
-  plankEdge.position.set(0, 0.015, 0.21); shelf.add(plankEdge);
-  shelf.add(plank);
-  const shelfRow = new THREE.Group(); shelf.add(shelfRow);
+  plankEdge.position.set(0, 0.015, 0.21); shelf.add(plank, plankEdge);
+  const W = 1.42, H = 1.25;
   const miniTrayGeo = new RoundedBoxGeometry(W, H, 0.09, 2, 0.012);
   const miniFrontGeo = new THREE.PlaneGeometry(1.24, 1.24);
   const miniGlass = new THREE.MeshPhysicalMaterial({ color: '#ffffff', transparent: true, opacity: 0.16, roughness: 0.02, metalness: 0, clearcoat: 1, clearcoatRoughness: 0, depthWrite: false });
@@ -159,179 +132,216 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
   let shelfItems = [];
   let shelfScroll = 0, shelfScrollTarget = 0;
   const SPACING = 0.56, MINI = 0.33;
-
-  function clearShelf() {
-    for (const it of shelfItems) { it.group.removeFromParent(); it.tex?.dispose(); it.front.material.dispose(); }
-    shelfItems = [];
-  }
+  function clearShelf() { for (const it of shelfItems) { it.group.removeFromParent(); it.tex?.dispose(); it.front.material.dispose(); } shelfItems = []; }
 
   /* ---------- state ---------- */
   const st = {
-    playing: false, open: 0, out: 0, spin: 0, spinVel: 0,
-    flip: 0, flipTarget: 0, swapPending: null, currentKey: null, t: 0,
-    mouse: new THREE.Vector2(), hover: null, dragging: false, dragAngle: 0, dragVel: 0, highlightKey: null,
+    t: 0, playing: false, spin: 0, spinVel: 0, door: 0, mouse: new THREE.Vector2(), hover: null, highlightKey: null,
+    docked: null,          // np currently in the player
+    flight: null,          // { dir:'in'|'out', np, t, from:{pos,quat,scale}, toItem }
+    queue: null,           // np waiting to fly in
+    press: null, knobDrag: null, volume: 60, volumeShown: 60, progress: 0,
   };
-  let labelTex = null, insertTex = null;
+  let labelTex = null;
 
   function applyPalette(p) {
     bgUniforms.uA.value.set(p[0]); bgUniforms.uB.value.set(p[1]); bgUniforms.uC.value.set(p[2]);
-    rimA.color.set(p[0]); rimB.color.set(p[2]);
+    rimA.color.set(p[0]); rimB.color.set(p[2]); deck.setPalette(p);
   }
-
-  function applyPrint(np) {
-    labelTex?.dispose(); insertTex?.dispose();
-    if (np.img) {
-      labelTex = discArtTexture(np.img, np.palette);
-      insertTex = coverTexture(np.img);
-    } else {
-      labelTex = labelTexture({ track: np.trackName, album: np.albumName, artists: np.artists, palette: np.palette, seed: np.key });
-      insertTex = insertTexture({ title: np.albumName || np.trackName, subtitle: np.artists, kind: np.kind || 'Album', palette: np.palette, seed: np.key });
-    }
+  function printDisc(np) {
+    labelTex?.dispose();
+    labelTex = np.img ? discArtTexture(np.img, np.palette) : labelTexture({ track: np.trackName, album: np.albumName, artists: np.artists, palette: np.palette, seed: np.key });
     labelMat.map = labelTex; labelMat.needsUpdate = true;
-    insertMat.map = insertTex; insertMat.needsUpdate = true;
-    applyPalette(np.palette);
+    np.printedWith = np.img ? 'art' : 'gen';
   }
-  /** Resolve cover art for np (or give up after a short wait so the swap never stalls). */
   function prepareArt(np) {
     if (!np.art || np.img || np.artPending) return;
-    np.artPending = true; np.artDeadline = performance.now() + 2500;
-    loadImage(np.art).then(img => {
-      np.img = img; np.artPending = false;
-      if (np.key === st.currentKey && st.swapPending !== np) applyPrint(np);
-    }).catch(() => { np.artPending = false; });
+    np.artPending = true; np.artDeadline = performance.now() + 2000;
+    loadImage(np.art).then(img => { np.img = img; np.artPending = false; if (st.docked === np || st.flight?.np === np) printDisc(np); })
+      .catch(() => { np.artPending = false; });
   }
 
   /* ---------- layout ---------- */
-  let layout = { portrait: false, vertical: false, discOutX: 1.12, dist: 6 };
+  const layout = { portrait: false, vertical: false, dist: 6, halfW: 3, halfH: 2 };
   function resize() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     const portrait = w / h < 0.95;
-    layout.portrait = portrait;
-    layout.vertical = !portrait;             // desktop / landscape tablet: album stack on the left
+    layout.portrait = portrait; layout.vertical = !portrait;
     const halfFovV = THREE.MathUtils.degToRad(camera.fov / 2);
-    const sceneHalfW = portrait ? 1.3 : 3.0;
-    const distW = sceneHalfW / (Math.tan(halfFovV) * camera.aspect);
-    const distH = (portrait ? 2.3 : 1.85) / Math.tan(halfFovV);
-    layout.dist = Math.max(distW, distH);
+    layout.dist = 7;
     const halfH = Math.tan(halfFovV) * layout.dist, halfW = halfH * camera.aspect;
     layout.halfW = halfW; layout.halfH = halfH;
     camera.updateProjectionMatrix();
     bgUniforms.uAspect.value = camera.aspect;
     if (portrait) {
-      layout.discOutX = 0.78;
-      hero.scale.setScalar(Math.min(1.0, (halfW * 2 * 0.94) / 2.95));
-      hero.position.set(-0.36 * hero.scale.x, 0.32, 0);
-      hero.rotation.y = 0.2;
-      shelf.position.set(0, -1.02, 0.35); shelf.scale.setScalar(0.92); shelf.rotation.set(0, 0, 0);
+      const sc = Math.min((halfW * 2 * 0.94) / PW, (halfH * 2 * 0.5) / PH);
+      player.scale.setScalar(sc);
+      player.position.set(0, halfH * 0.16, 0);
+      shelf.scale.setScalar(Math.min(1.25, halfW / 1.3)); shelf.position.set(0, -halfH * 0.5, 0.35);
     } else {
-      layout.discOutX = 1.05;
-      // big hero: case + disc fill the space right of the album stack, above the deck
-      const avail = halfW * 2 - 1.55;                 // width left after the stack column
-      const sc = Math.min(1.85, avail / 3.05, (halfH * 2 - 1.0) / 1.38);
-      hero.scale.setScalar(sc);
-      const leftEdge = -halfW + 1.55;                 // stack column width in world units
-      hero.position.set(leftEdge + (0.78 + 0.05) * sc, 0.34, 0);
-      hero.rotation.y = 0.26;
-      shelf.position.set(-halfW + 0.72, 0, 0.4); shelf.scale.setScalar(1); shelf.rotation.set(0, 0, 0);
+      const col = Math.min(1.6, halfW * 0.34);          // world width of the album stack column
+      layout.col = col;
+      const availW = halfW * 2 - col - 0.3, availH = halfH * 2 - 1.2;
+      const sc = Math.min(availW / (PW + 0.3), availH / (PH + 0.25), 1.7);
+      player.scale.setScalar(sc);
+      player.position.set(-halfW + col + availW / 2 + 0.1, -0.12, 0);
+      shelf.scale.setScalar(1); shelf.position.set(-halfW + col * 0.5, 0, 0.4);
     }
     plank.visible = plankEdge.visible = !layout.vertical;
-    if (typeof clampShelf === 'function' && shelfItems.length) clampShelf();
-    shadow.position.set(hero.position.x + 0.45 * hero.scale.x, hero.position.y - 0.8 * hero.scale.x, 0.05);
-    shadow.scale.setScalar(hero.scale.x);
+    if (shelfItems.length) clampShelf();
   }
   addEventListener('resize', resize);
 
   /* ---------- picking & interaction ---------- */
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
-  function pick(clientX, clientY) {
-    const r = canvas.getBoundingClientRect();
-    ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
-    ray.setFromCamera(ndc, camera);
-    const hits = ray.intersectObjects([disc, ...shelfItems.map(s => s.group)], true);
+  function setRay(x, y) { const r = canvas.getBoundingClientRect(); ndc.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1); ray.setFromCamera(ndc, camera); }
+  function pick(x, y) {
+    setRay(x, y);
+    const hits = ray.intersectObjects([...deck.pickables, ...shelfItems.map(s => s.group)], true);
     for (const h of hits) {
       let o = h.object;
-      while (o) { if (o === disc) return { type: 'disc' }; if (o.userData.shelfIndex !== undefined) return { type: 'shelf', index: o.userData.shelfIndex }; o = o.parent; }
+      while (o) {
+        if (o.userData.control) return { type: 'control', ctl: o.userData.control, point: h.point };
+        if (o.userData.shelfIndex !== undefined) return { type: 'shelf', index: o.userData.shelfIndex };
+        o = o.parent;
+      }
     }
     return null;
   }
-  function screenPos(obj) {
-    const v = new THREE.Vector3(); obj.getWorldPosition(v); if (layout.vertical) v.x += 0.34; else v.y += 0.26; v.project(camera);
-    const r = canvas.getBoundingClientRect();
-    return { x: r.left + (v.x * 0.5 + 0.5) * r.width, y: r.top + (-v.y * 0.5 + 0.5) * r.height };
+  const toScreen = v => { const p = v.clone().project(camera); const r = canvas.getBoundingClientRect(); return { x: r.left + (p.x * 0.5 + 0.5) * r.width, y: r.top + (-p.y * 0.5 + 0.5) * r.height }; };
+  function itemScreenPos(obj) { const v = new THREE.Vector3(); obj.getWorldPosition(v); if (layout.vertical) v.x += 0.34; else v.y += 0.26; return toScreen(v); }
+  function knobAngleAt(x, y) { const c = new THREE.Vector3(); deck.knob.getWorldPosition(c); const s = toScreen(c); return Math.atan2(x - s.x, -(y - s.y)); }
+  function seekFracAt(point) {
+    const local = deck.progress.worldToLocal(point.clone());
+    let a = Math.atan2(local.x, local.y); if (a < 0) a += Math.PI * 2;
+    return a / (Math.PI * 2);
   }
-  function discScreenCenter() {
-    const v = new THREE.Vector3(); disc.getWorldPosition(v); v.project(camera);
-    const r = canvas.getBoundingClientRect();
-    return { x: r.left + (v.x * 0.5 + 0.5) * r.width, y: r.top + (-v.y * 0.5 + 0.5) * r.height };
-  }
-
-  let downAt = null, lastTap = 0, dragShelf = null;
-  canvas.addEventListener('pointermove', e => {
-    st.mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
-    if (st.dragging) {
-      const c = discScreenCenter(); const a = Math.atan2(e.clientY - c.y, e.clientX - c.x);
-      let d = a - st.dragAngle; if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2;
-      st.spin -= d * (st.flip > 0.5 ? -1 : 1); st.dragVel = -d * 60; st.dragAngle = a; return;
-    }
-    if (dragShelf) {
-      if (layout.vertical) { const dy = e.clientY - dragShelf.y; dragShelf.y = e.clientY; shelfScrollTarget += dy / canvas.clientHeight * 6; }
-      else { const dx = e.clientX - dragShelf.x; dragShelf.x = e.clientX; shelfScrollTarget -= dx / canvas.clientWidth * 5.5; }
-      clampShelf(); return;
-    }
-    const p = pick(e.clientX, e.clientY);
-    const idx = p?.type === 'shelf' ? p.index : null;
-    if (idx !== st.hover) {
-      st.hover = idx;
-      onShelfHover?.(idx === null ? null : shelfItems[idx].data, idx === null ? null : { ...screenPos(shelfItems[idx].group), side: layout.vertical });
-    }
-    canvas.style.cursor = p ? (p.type === 'disc' ? 'grab' : 'pointer') : 'default';
-  });
-  canvas.addEventListener('pointerdown', e => {
-    const p = pick(e.clientX, e.clientY);
-    downAt = { x: e.clientX, y: e.clientY, p };
-    if (p?.type === 'disc') {
-      st.dragging = true; const c = discScreenCenter(); st.dragAngle = Math.atan2(e.clientY - c.y, e.clientX - c.x);
-      canvas.setPointerCapture(e.pointerId); canvas.style.cursor = 'grabbing';
-    } else if (inShelfZone(e)) {
-      dragShelf = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId);
-    }
-  });
-  canvas.addEventListener('pointerup', e => {
-    const moved = downAt ? Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) : 99;
-    if (st.dragging) {
-      st.dragging = false; st.spinVel = THREE.MathUtils.clamp(st.dragVel, -30, 30);
-      if (moved < 6) { // tap on disc: double-tap flips it over
-        const now = performance.now(); if (now - lastTap < 350) { st.flipTarget = st.flipTarget ? 0 : 1; onDiscFlip?.(st.flipTarget); } lastTap = now;
-      }
-    } else if (moved < 6 && downAt?.p?.type === 'shelf') {
-      onShelfPick?.(shelfItems[downAt.p.index].data);
-    }
-    dragShelf = null; downAt = null;
-  });
-  canvas.addEventListener('pointerleave', () => { if (st.hover !== null) { st.hover = null; onShelfHover?.(null); } });
-  canvas.addEventListener('wheel', e => {
-    if (!inShelfZone(e)) return;
-    shelfScrollTarget += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * 0.004; clampShelf(); e.preventDefault();
-  }, { passive: false });
-
-  function inShelfZone(e) {
-    const r = canvas.getBoundingClientRect();
-    return layout.vertical ? e.clientX < r.left + r.width * 0.22 : e.clientY > r.top + r.height * 0.55;
-  }
+  function inShelfZone(e) { const r = canvas.getBoundingClientRect(); return layout.vertical ? e.clientX < r.left + r.width * (layout.col / (layout.halfW * 2)) + 20 : e.clientY > r.top + r.height * 0.72; }
   function clampShelf() {
     let max = (shelfItems.length - 1) * SPACING;
     if (layout.vertical) { const fit = Math.floor((layout.halfH * 2 - 1.04) / 0.52); max = Math.max(0, shelfItems.length - fit) * SPACING; }
     shelfScrollTarget = THREE.MathUtils.clamp(shelfScrollTarget, 0, Math.max(0, max));
   }
 
-  /* ---------- animation loop ---------- */
-  let last = performance.now();
-  let running = true;
-  document.addEventListener('visibilitychange', () => { running = !document.hidden; if (running) { last = performance.now(); loop(); } });
+  let downAt = null, dragShelf = null;
+  canvas.addEventListener('pointermove', e => {
+    st.mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+    if (st.knobDrag) {
+      const a = knobAngleAt(e.clientX, e.clientY);
+      let d = a - st.knobDrag.a; if (d > Math.PI) d -= 2 * Math.PI; if (d < -Math.PI) d += 2 * Math.PI;
+      st.knobDrag.a = a;
+      st.volume = THREE.MathUtils.clamp(st.volume + d / (Math.PI * 1.5) * 100, 0, 100);
+      onVolume?.(Math.round(st.volume)); return;
+    }
+    if (dragShelf) {
+      if (layout.vertical) { const dy = e.clientY - dragShelf.y; dragShelf.y = e.clientY; shelfScrollTarget += dy / canvas.clientHeight * 6; }
+      else { const dx = e.clientX - dragShelf.x; dragShelf.x = e.clientX; shelfScrollTarget -= dx / canvas.clientWidth * 5.5; }
+      dragShelf.moved += 1; clampShelf(); return;
+    }
+    const p = pick(e.clientX, e.clientY);
+    const idx = p?.type === 'shelf' ? p.index : null;
+    if (idx !== st.hover) {
+      st.hover = idx;
+      onShelfHover?.(idx === null ? null : shelfItems[idx].data, idx === null ? null : { ...itemScreenPos(shelfItems[idx].group), side: layout.vertical });
+    }
+    canvas.style.cursor = p ? (p.type === 'control' && p.ctl.userData.action === 'volume' ? 'grab' : 'pointer') : 'default';
+  });
+  canvas.addEventListener('pointerdown', e => {
+    const p = pick(e.clientX, e.clientY);
+    downAt = { x: e.clientX, y: e.clientY, p };
+    if (p?.type === 'control') {
+      const a = p.ctl.userData.action;
+      if (a === 'volume') { st.knobDrag = { a: knobAngleAt(e.clientX, e.clientY) }; canvas.style.cursor = 'grabbing'; }
+      else if (a === 'seek') { onSeek?.(seekFracAt(p.point)); }
+      else { st.press = p.ctl; p.ctl.userData.pressed = true; }
+      canvas.setPointerCapture(e.pointerId);
+    } else if (inShelfZone(e)) { dragShelf = { x: e.clientX, y: e.clientY, moved: 0 }; canvas.setPointerCapture(e.pointerId); }
+  });
+  canvas.addEventListener('pointerup', e => {
+    const moved = downAt ? Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y) : 99;
+    if (st.press) {
+      const p = pick(e.clientX, e.clientY);
+      if (p?.ctl === st.press) onControl?.(st.press.userData.action);
+      st.press.userData.pressed = false; st.press = null;
+    } else if (st.knobDrag) { st.knobDrag = null; canvas.style.cursor = 'grab'; }
+    else if (moved < 8 && downAt?.p?.type === 'shelf') { const it = shelfItems[downAt.p.index]; onShelfPick?.(it.data); }
+    dragShelf = null; downAt = null;
+  });
+  canvas.addEventListener('pointercancel', () => { if (st.press) { st.press.userData.pressed = false; st.press = null; } st.knobDrag = null; dragShelf = null; });
+  canvas.addEventListener('pointerleave', () => { if (st.hover !== null) { st.hover = null; onShelfHover?.(null); } });
+  canvas.addEventListener('wheel', e => {
+    if (pick(e.clientX, e.clientY)?.ctl === deck.knob) { st.volume = THREE.MathUtils.clamp(st.volume - e.deltaY * 0.05, 0, 100); onVolume?.(Math.round(st.volume)); e.preventDefault(); return; }
+    if (!inShelfZone(e)) return;
+    shelfScrollTarget += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * 0.004; clampShelf(); e.preventDefault();
+  }, { passive: false });
 
+  /* ---------- disc flights ---------- */
+  const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3();
+  function itemTransform(item) {
+    const g = item.group; g.updateWorldMatrix(true, false);
+    const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+    g.matrixWorld.decompose(pos, quat, scl);
+    pos.add(new THREE.Vector3(0.05, 0, 0.06).multiplyScalar(scl.x).applyQuaternion(quat));
+    return { pos, quat, scale: scl.x * 0.95 };
+  }
+  function offscreenTransform() {
+    return { pos: new THREE.Vector3(layout.vertical ? -layout.halfW - 1 : 0, layout.vertical ? 0 : -layout.halfH - 1.2, 1), quat: new THREE.Quaternion(), scale: 0.4 };
+  }
+  function anchorTransform() {
+    deck.anchor.updateWorldMatrix(true, false);
+    const pos = new THREE.Vector3(), quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+    deck.anchor.matrixWorld.decompose(pos, quat, scl);
+    return { pos, quat, scale: scl.x };
+  }
+  const findItem = key => shelfItems.find(s => s.data.key === key);
+  function startIn(np) {
+    const item = findItem(np.sourceKey) || findItem(np.key);
+    const from = item && item.group.visible ? itemTransform(item) : offscreenTransform();
+    if (item && !item.group.visible) { shelfScrollTarget = item.index * SPACING; clampShelf(); }
+    printDisc(np);
+    st.flight = { dir: 'in', np, t: 0, from, item };
+    disc.visible = true;
+  }
+  function startOut() {
+    const np = st.docked; st.docked = null;
+    const item = findItem(np.sourceKey) || findItem(np.key);
+    st.flight = { dir: 'out', np, t: 0, from: anchorTransform(), item };
+  }
+  function flightTarget(f) {
+    if (f.dir === 'in') return anchorTransform();
+    return f.item && f.item.group.visible ? itemTransform(f.item) : offscreenTransform();
+  }
+  function stepFlight(dt) {
+    const f = st.flight; if (!f) return;
+    // inbound waits for the door to open before entering the window
+    const dur = 1.25;
+    f.t = Math.min(1, f.t + dt / dur);
+    const to = flightTarget(f);
+    const e = f.t < 0.5 ? 4 * f.t ** 3 : 1 - Math.pow(-2 * f.t + 2, 3) / 2;
+    const ctrl = f.from.pos.clone().lerp(to.pos, 0.5).add(new THREE.Vector3(0, 0.9, 1.6));
+    const a = f.from.pos.clone().lerp(ctrl, e), b = ctrl.clone().lerp(to.pos, e);
+    disc.position.copy(a.lerp(b, e));
+    // last stretch: straight in along the window normal so it slots behind the door
+    if (f.dir === 'in' && f.t > 0.8) { const k = (f.t - 0.8) / 0.2; const n = new THREE.Vector3(0, 0, 1).applyQuaternion(to.quat).multiplyScalar(0.5 * (1 - k) * to.scale); disc.position.copy(to.pos).add(n).lerp(disc.position, (1 - k) * 0.3); }
+    disc.quaternion.slerpQuaternions(f.from.quat, to.quat, e);
+    disc.scale.setScalar(THREE.MathUtils.lerp(f.from.scale, to.scale, e));
+    st.spin += dt * (f.dir === 'in' ? -14 : 14) * (1 - e * 0.6);
+    if (f.t >= 1) {
+      if (f.dir === 'in') { st.docked = f.np; st.flight = null; }
+      else { disc.visible = false; st.flight = null; if (st.queue) { const q = st.queue; st.queue = null; startIn(q); } }
+    }
+  }
+  function dockedPose() {
+    const t = anchorTransform();
+    disc.position.copy(t.pos); disc.quaternion.copy(t.quat); disc.scale.setScalar(t.scale);
+  }
+
+  /* ---------- animation loop ---------- */
+  let last = performance.now(), running = true;
+  document.addEventListener('visibilitychange', () => { running = !document.hidden; if (running) { last = performance.now(); loop(); } });
   function loop() {
     if (!running) return;
     requestAnimationFrame(loop);
@@ -340,92 +350,104 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
     bgUniforms.uTime.value = st.t;
     bgUniforms.uEnergy.value = damp(bgUniforms.uEnergy.value, st.playing ? 1 : 0, 1.5, dt);
 
-    // camera parallax
-    const d = layout.dist || 6;
-    camera.position.x = damp(camera.position.x, st.mouse.x * 0.25, 2.5, dt);
-    camera.position.y = damp(camera.position.y, 0.05 + st.mouse.y * 0.15, 2.5, dt);
-    camera.position.z = d;
-    camera.lookAt(camTarget);
+    camera.position.x = damp(camera.position.x, st.mouse.x * 0.22, 2.5, dt);
+    camera.position.y = damp(camera.position.y, 0.05 + st.mouse.y * 0.14, 2.5, dt);
+    camera.position.z = layout.dist; camera.lookAt(0, 0, 0);
 
-    // choreography: lid opens, disc travels in/out of the tray, lid closes.
-    // Album change = disc goes home, insert + label are reprinted, disc comes back out.
-    const want = st.currentKey && !st.swapPending ? 1 : 0;
-    const moving = Math.abs(st.out - want) > 0.002;
-    st.open = damp(st.open, moving ? 1 : 0, moving ? 5 : 3, dt);
-    if (moving && st.open > 0.82) { const step = dt / 1.05; st.out += THREE.MathUtils.clamp(want - st.out, -step, step); }
-    if (st.swapPending && st.out <= 0.002 && (!st.swapPending.artPending || now > st.swapPending.artDeadline)) { applyPrint(st.swapPending); st.swapPending = null; }
+    // player idle tilt follows the pointer a little
+    player.rotation.y = damp(player.rotation.y, (layout.portrait ? 0 : -0.1) + st.mouse.x * 0.06, 3, dt);
+    player.rotation.x = damp(player.rotation.x, -0.04 - st.mouse.y * 0.04, 3, dt);
 
-    lidPivot.rotation.y = -1.38 * ease(THREE.MathUtils.clamp(st.open, 0, 1));
-    const o = ease(THREE.MathUtils.clamp(st.out, 0, 1));
-    const lift = Math.sin(Math.PI * Math.min(1, st.out * 1.4)) * 0.45;
-    const bob = Math.sin(st.t * 1.3) * 0.018 * o;
-    disc.position.set(0.03 + layout.discOutX * o, 0.03 * o + bob, 0.012 + 0.72 * o + lift);
-    disc.rotation.set(Math.sin(st.t * 0.7) * 0.035 * o, -0.42 * o, 0);
+    // queue handling: wait for art (max 2s) before a disc flies in
+    if (!st.flight && st.queue && !st.docked && (!st.queue.artPending || now > st.queue.artDeadline)) { const q = st.queue; st.queue = null; startIn(q); }
 
-    // spin with inertia (≈ 0.55 rev/s when playing)
-    if (!st.dragging) {
-      const targetVel = st.playing && st.out > 0.95 ? -3.4 : 0;
-      st.spinVel = damp(st.spinVel, targetVel, st.playing ? 1.1 : 0.7, dt);
-      st.spin += st.spinVel * dt;
-    }
+    // door: open while a disc is travelling near the player
+    const f = st.flight;
+    const doorWant = f ? (f.dir === 'in' ? (f.t > 0.25 ? 1 : 0) : (f.t < 0.55 ? 1 : 0)) : 0;
+    st.door = damp(st.door, doorWant, 6, dt);
+    deck.doorPivot.rotation.x = -1.45 * st.door;
+
+    if (f) stepFlight(dt); else if (st.docked) dockedPose();
+
+    // spin (≈ 0.55 rev/s), with inertia
+    const targetVel = st.docked && st.playing ? -3.4 : 0;
+    st.spinVel = damp(st.spinVel, targetVel, st.playing ? 1.1 : 0.7, dt);
+    if (!f) st.spin += st.spinVel * dt;
     discSpin.rotation.z = st.spin;
-    st.flip = damp(st.flip, st.flipTarget, 4, dt);
-    discFlip.rotation.y = Math.PI * ease(st.flip);
 
-    // hero idle float
-    jewel.position.y = Math.sin(st.t * 0.8) * 0.012;
-    rimA.intensity = 5 + (st.playing ? Math.sin(st.t * 2.1) * 1.2 + 1.5 : 0);
+    // buttons
+    for (const c of deck.controls) {
+      c.userData.press = damp(c.userData.press, c.userData.pressed ? 1 : 0, 25, dt);
+      c.userData.cap.position.z = -0.035 * c.userData.press;
+    }
+    deck.knobSpin.rotation.z = -(-Math.PI * 0.75 + (st.volume / 100) * Math.PI * 1.5);
+    deck.volRing.material.uniforms.uValue.value = st.volume / 100;
+    deck.progress.material.uniforms.uValue.value = st.progress;
+    deck.progress.material.uniforms.uTime.value = st.t; deck.volRing.material.uniforms.uTime.value = st.t;
+    deck.progress.material.uniforms.uPlaying.value = st.playing ? 1 : 0;
+    deck.playMat.emissiveIntensity = 0.15 + (st.playing ? 0.12 + Math.sin(st.t * 2.2) * 0.08 : 0);
+    deck.display.draw(now);
 
-    // shelf coverflow (horizontal on phones, vertical stack on desktop)
+    // album stack
     shelfScroll = damp(shelfScroll, shelfScrollTarget, 6, dt);
     for (const it of shelfItems) {
       const hovered = st.hover === it.index;
       const active = it.data.key === st.highlightKey;
-      it.lift = damp(it.lift, hovered ? 1 : active ? 0.5 : 0, 8, dt);
+      it.lift = damp(it.lift, hovered ? 1 : active ? 0.55 : 0, 8, dt);
       if (layout.vertical) {
         const SP = 0.52, MS = 0.36;
-        const topY = layout.halfH - 0.62, botY = -layout.halfH + 0.42;
-        const midY = (topY + botY) / 2;
+        const topY = layout.halfH - 0.62, botY = -layout.halfH + 0.42, midY = (topY + botY) / 2;
         const y = topY - (it.index * SP - shelfScroll * (SP / SPACING));
-        const dist = Math.abs(y - midY);
-        it.group.position.set(0.16 * it.lift, y, -dist * 0.12 + it.lift * 0.12);
+        it.group.position.set(0.18 * it.lift, y, -Math.abs(y - midY) * 0.12 + it.lift * 0.14);
         it.group.rotation.set(THREE.MathUtils.clamp((y - midY) * 0.22, -0.5, 0.5) * (1 - it.lift * 0.8), 0.42 * (1 - it.lift * 0.7), 0);
         const over = Math.max(y - topY, botY - y, 0);
         const vis = THREE.MathUtils.clamp(1 - over / 0.35, 0, 1);
-        it.group.scale.setScalar(MS * (0.8 + 0.2 * vis));
-        it.group.visible = vis > 0.01;
+        it.group.scale.setScalar(MS * (0.8 + 0.2 * vis)); it.group.visible = vis > 0.01;
       } else {
-        const x = it.index * SPACING - shelfScroll;
-        const dist = Math.abs(x);
+        const x = it.index * SPACING - shelfScroll, dist = Math.abs(x);
         it.group.position.set(x, 0.0175 + MINI * H / 2 + it.lift * 0.08, -dist * 0.06);
         it.group.rotation.set(-0.06 * it.lift, THREE.MathUtils.clamp(-x * 0.28, -0.7, 0.7) * (1 - it.lift * 0.8), 0);
         const vis = THREE.MathUtils.clamp(1 - (dist - 2.6) / 0.8, 0, 1);
-        it.group.scale.setScalar(MINI * (0.75 + 0.25 * vis));
-        it.group.visible = vis > 0.01;
+        it.group.scale.setScalar(MINI * (0.75 + 0.25 * vis)); it.group.visible = vis > 0.01;
       }
     }
     renderer.render(scene, camera);
   }
-
-  resize();
-  loop();
+  resize(); loop();
+  deck.display.set({ msg: 'NO DISC' });
 
   /* ---------- public API ---------- */
   return {
-    /** np: {key, trackName, albumName, artists, palette, kind} */
+    /** np: { key (album uri), sourceKey (context uri or album uri), art, trackName, albumName, artists, palette } */
     setNowPlaying(np) {
-      if (!np) { st.currentKey = null; return; }
+      if (!np) { if (st.docked && !st.flight) startOut(); st.queue = null; deck.display.set({ msg: 'NO DISC' }); return; }
       if (!np.palette) np.palette = paletteFromSeed(np.key);
+      applyPalette(np.palette);
+      const current = st.queue || (st.flight?.dir === 'in' ? st.flight.np : st.docked);
+      if (current && current.sourceKey === np.sourceKey) {
+        // same disc (album/playlist): reprint if the art changed (e.g. next track of a playlist)
+        Object.assign(current, { trackName: np.trackName, artists: np.artists, albumName: np.albumName, palette: np.palette });
+        if (current.art !== np.art) { current.art = np.art; current.img = null; current.key = np.key; prepareArt(current); printDisc(current); }
+        return;
+      }
       prepareArt(np);
-      if (st.currentKey === null && !labelTex) { applyPrint(np); }
-      else if (np.key !== st.currentKey) { st.swapPending = np; }
-      else { applyPrint(np); } // same album, new track title on the label
-      st.currentKey = np.key;
+      st.queue = np;
+      if (st.docked && !st.flight) startOut();
     },
-    refreshPrint(np) { if (np && np.key === st.currentKey && !st.swapPending) applyPrint(np); else if (np === st.swapPending) {/* applied on swap */} },
-    setPlaying(p) { st.playing = !!p; },
+    refreshPrint(np) {
+      const cur = st.docked || st.flight?.np || st.queue;
+      if (cur && np && cur.sourceKey === np.sourceKey) { cur.palette = np.palette; applyPalette(np.palette); if (!cur.img) printDisc(cur); }
+    },
+    setPlaying(p) { st.playing = !!p; deck.setPlayIcon(p); },
     setHighlight(key) { st.highlightKey = key; },
-    /** items: [{key, title, subtitle, kind, palette, ...data}] */
+    setTransport({ playing, shuffle, repeat, liked, volume, device, title, sub, dur }) {
+      deck.setLeds({ shuffle, repeat, love: liked });
+      if (Number.isFinite(volume) && !st.knobDrag) st.volume = volume;
+      deck.display.set({ msg: title ? null : (device ? 'READY' : 'NO DISC'), title, sub, dur, playing, shuffle, repeat, device });
+    },
+    setProgress(frac, timeText) { st.progress = THREE.MathUtils.clamp(frac || 0, 0, 1); deck.display.set({ time: timeText }); },
+    setVolume(v) { st.volume = v; },
+    /** items: [{key, title, subtitle, kind, palette, art}] */
     setShelf(items) {
       clearShelf();
       items.forEach((data, index) => {
@@ -433,24 +455,28 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
         const trayM = new THREE.Mesh(miniTrayGeo, plasticDark);
         const tex = insertTexture({ title: data.title, subtitle: data.subtitle, kind: data.kind, palette: data.palette || paletteFromSeed(data.key), seed: data.key }, 512);
         const front = new THREE.Mesh(miniFrontGeo, new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.5 })); front.position.set(0.05, 0, 0.047);
-        if (data.art) loadImage(data.art).then(img => { const it = shelfItems.find(x => x.data === data); if (!it) return; it.tex?.dispose(); it.tex = coverTexture(img); it.hasArt = true; it.front.material.map = it.tex; it.front.material.needsUpdate = true; }).catch(() => {});
         const g = new THREE.Mesh(miniGlassGeo, miniGlass); g.position.z = 0.056;
-        group.add(trayM, front, g);
-        shelfRow.add(group);
-        shelfItems.push({ group, front, tex, data, index, lift: 0 });
+        group.add(trayM, front, g); shelf.add(group);
+        const it = { group, front, tex, data, index, lift: 0 };
+        shelfItems.push(it);
+        if (data.art) loadImage(data.art).then(img => { if (!shelfItems.includes(it)) return; it.tex?.dispose(); it.tex = coverTexture(img); it.hasArt = true; it.front.material.map = it.tex; it.front.material.needsUpdate = true; }).catch(() => {});
       });
       shelfScrollTarget = shelfScroll = layout.vertical ? 0 : Math.min(3, Math.floor((items.length - 1) / 2)) * SPACING;
       clampShelf();
     },
     updateShelfPalette(key, palette) {
-      const it = shelfItems.find(s => s.data.key === key); if (!it) return;
+      const it = findItem(key); if (!it) return;
       it.data.palette = palette; if (it.hasArt) return; it.tex.dispose();
       it.tex = insertTexture({ title: it.data.title, subtitle: it.data.subtitle, kind: it.data.kind, palette, seed: it.data.key }, 512);
       it.front.material.map = it.tex; it.front.material.needsUpdate = true;
     },
-    flip() { st.flipTarget = st.flipTarget ? 0 : 1; },
     scrollShelf(dir) { shelfScrollTarget += dir * SPACING * 3; clampShelf(); },
-    focusShelf(key) { const it = shelfItems.find(s => s.data.key === key); if (it) { shelfScrollTarget = it.index * SPACING; clampShelf(); } },
+    focusShelf(key) { const it = findItem(key); if (it) { shelfScrollTarget = it.index * SPACING; clampShelf(); } },
+    /** Start the insert animation immediately when the user picks an album (before Spotify confirms). */
+    insertFromShelf(item) {
+      const np = { key: item.key, sourceKey: item.key, art: item.art, trackName: item.title, albumName: item.title, artists: item.subtitle, palette: item.palette || paletteFromSeed(item.key) };
+      this.setNowPlaying(np);
+    },
     renderer,
   };
 }

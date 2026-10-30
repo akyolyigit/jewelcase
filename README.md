@@ -1,6 +1,6 @@
 # Jewelcase
 
-A skeuomorphic, personal web player for Spotify: a 3D CD that spins in a glass jewel case, a shelf of your albums and playlists, glass buttons and shader lighting. Plain HTML/JS with three.js. No build step and no backend.
+A skeuomorphic, personal web player for Spotify: an interactive 3D CD player (push buttons, a volume knob, an LED progress ring and a glowing display), plus a stack of your albums and playlists. Pick one and its disc flies into the player and spins behind the glass door. Plain HTML/JS with three.js. No build step and no backend.
 
 > Personal, non-commercial project. Not affiliated with or endorsed by Spotify. Requires Spotify Premium.
 
