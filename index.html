@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08080b">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>Jewelcase — a personal player for Spotify</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3CradialGradient id='g'%3E%3Cstop offset='0' stop-color='%23fff'/%3E%3Cstop offset='.5' stop-color='%23b9c6ff'/%3E%3Cstop offset='1' stop-color='%23ffb4e1'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='32' r='6' fill='%2308080b'/%3E%3C/svg%3E">
+  <script type="importmap">
+    { "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/addons/": "./vendor/three/addons/"
+    } }
+  </script>
+</head>
+<body>
+  <canvas id="stage" aria-label="3D view of the current CD and your shelf of albums"></canvas>
+
+  <!-- Spotify icon, reused everywhere via <use> -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="spotify-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.14v13.72a1 1 0 0 0 1.52.85l10.6-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4.2" height="14" rx="1.2" fill="currentColor"/><rect x="13.8" y="5" width="4.2" height="14" rx="1.2" fill="currentColor"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path fill="currentColor" d="M5 6.2v11.6a.9.9 0 0 0 1.38.76L15 13v4.8a1 1 0 0 0 1 1h1.5a1 1 0 0 0 1-1V6.2a1 1 0 0 0-1-1H16a1 1 0 0 0-1 1V11L6.38 5.44A.9.9 0 0 0 5 6.2z"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M17 2l4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 4v16M10 4v16M15 4.5l4.5 15"/></symbol>
+    <symbol id="i-device" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8M12 16v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21s-7.5-4.6-9.6-9.2C.9 8.4 3 4.5 6.8 4.5c2.1 0 3.6 1.1 5.2 3 1.6-1.9 3.1-3 5.2-3 3.8 0 5.9 3.9 4.4 7.3C19.5 16.4 12 21 12 21z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-vol" viewBox="0 0 24 24"><path fill="currentColor" d="M4 9h3.5L12 5v14l-4.5-4H4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-flip" viewBox="0 0 24 24"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
+
+  <!-- ===== Setup / sign-in ===== -->
+  <section id="setup" class="sheet-center" hidden>
+    <div class="glass-panel setup-card">
+      <div class="brand-xl"><span class="brand-disc"></span>Jewelcase</div>
+      <p class="lede">A skeuomorphic player for your Spotify library: 3D discs, glass cases, real buttons.</p>
+
+      <ol class="steps">
+        <li id="step-client">
+          <label for="client-id">Your app's <b>Client ID</b> <span class="muted">(developer.spotify.com → Dashboard → your app)</span></label>
+          <input id="client-id" class="glass-input" autocomplete="off" spellcheck="false" placeholder="e.g. 3f1c…a9" maxlength="64">
+          <small class="muted">A Client ID is public. Never paste your Client Secret anywhere. This app doesn't need it.</small>
+        </li>
+        <li>
+          <span>In the app's settings, add this exact <b>Redirect URI</b>:</span>
+          <div class="copy-row"><code id="redirect-uri"></code><button class="chip" id="copy-redirect" type="button">Copy</button></div>
+          <small class="muted">Also tick <b>Web API</b> and <b>Web Playback SDK</b>, and add your Spotify e-mail under <b>User Management</b>.</small>
+          <p id="redirect-warning" class="warn" hidden></p>
+        </li>
+      </ol>
+
+      <label class="check"><input type="checkbox" id="remember"> Stay signed in on this device</label>
+      <button id="login" class="glass-cta" type="button"><svg><use href="#spotify-icon"/></svg> Connect with Spotify</button>
+      <p id="setup-error" class="warn" role="alert" hidden></p>
+      <button id="demo" class="link-btn" type="button">Preview the design without signing in</button>
+      <p class="fine">Not affiliated with Spotify. Requires Spotify Premium. Personal, non-commercial project.</p>
+    </div>
+  </section>
+
+  <!-- ===== App chrome ===== -->
+  <div id="app" hidden>
+    <header class="topbar">
+      <div class="brand"><span class="brand-disc"></span><span>Jewelcase</span></div>
+      <a class="powered" href="https://open.spotify.com" target="_blank" rel="noopener">Powered by <svg><use href="#spotify-icon"/></svg><span>Spotify</span></a>
+      <nav class="top-actions">
+        <button class="glass-btn sm" id="btn-search" aria-label="Search"><svg><use href="#i-search"/></svg></button>
+        <button class="glass-btn sm" id="btn-library" aria-label="Library"><svg><use href="#i-library"/></svg></button>
+        <button class="glass-btn sm" id="btn-devices" aria-label="Devices"><svg><use href="#i-device"/></svg></button>
+        <button class="avatar glass-btn sm" id="btn-account" aria-label="Account"><span id="avatar-initial">·</span></button>
+      </nav>
+    </header>
+
+    <div id="demo-ribbon" class="ribbon" hidden>Demo: not connected to Spotify. <button class="link-btn" id="exit-demo">Sign in</button></div>
+
+    <!-- Now playing: the real artwork, flat, uncropped, nothing on top of it -->
+    <aside class="now glass-panel" id="now" aria-live="polite">
+      <a class="art-link" id="art-link" target="_blank" rel="noopener" aria-label="Open album in Spotify">
+        <img id="art" alt="" width="640" height="640" decoding="async">
+        <div id="art-empty" class="art-empty"><span class="brand-disc lg"></span></div>
+      </a>
+      <div class="meta">
+        <a id="np-title" class="np-title" target="_blank" rel="noopener">Nothing playing</a>
+        <div id="np-artists" class="np-artists">Pick something from your shelf</div>
+        <a id="np-album" class="np-album" target="_blank" rel="noopener"></a>
+        <div class="meta-actions">
+          <button class="glass-btn xs heart" id="btn-heart" aria-label="Save to Your Library" aria-pressed="false" disabled><svg><use href="#i-heart"/></svg></button>
+          <a class="open-spotify" id="open-spotify" target="_blank" rel="noopener"><svg><use href="#spotify-icon"/></svg>Open in Spotify</a>
+        </div>
+      </div>
+    </aside>
+
+    <div class="disc-hint" id="disc-hint">Drag the disc to scratch · double-tap to flip</div>
+
+    <!-- Shelf arrows + hover card -->
+    <button class="glass-btn sm shelf-nav left" id="shelf-left" aria-label="Scroll shelf left"><svg><use href="#i-left"/></svg></button>
+    <button class="glass-btn sm shelf-nav right" id="shelf-right" aria-label="Scroll shelf right"><svg style="transform:scaleX(-1)"><use href="#i-left"/></svg></button>
+    <div class="shelf-tip glass-panel" id="shelf-tip" hidden>
+      <img id="tip-art" alt="" width="300" height="300">
+      <div><div class="tip-title" id="tip-title"></div><div class="tip-sub" id="tip-sub"></div><div class="tip-hint">Click to play</div></div>
+    </div>
+
+    <!-- Transport deck -->
+    <footer class="deck glass-panel">
+      <div class="progress">
+        <span class="time" id="t-pos">0:00</span>
+        <div class="groove"><div class="fill" id="fill"></div><input type="range" id="seek" min="0" max="1000" value="0" aria-label="Seek"></div>
+        <span class="time" id="t-dur">0:00</span>
+      </div>
+      <div class="controls">
+        <button class="glass-btn md toggle" id="btn-shuffle" aria-label="Shuffle" aria-pressed="false"><svg><use href="#i-shuffle"/></svg></button>
+        <button class="glass-btn lg" id="btn-prev" aria-label="Previous"><svg style="transform:scaleX(-1)"><use href="#i-next"/></svg></button>
+        <button class="glass-orb" id="btn-play" aria-label="Play"><svg id="play-icon"><use href="#i-play"/></svg></button>
+        <button class="glass-btn lg" id="btn-next" aria-label="Next"><svg><use href="#i-next"/></svg></button>
+        <button class="glass-btn md toggle" id="btn-repeat" aria-label="Repeat: off" data-state="off"><svg><use href="#i-repeat"/></svg><i class="one">1</i></button>
+      </div>
+      <div class="deck-side">
+        <button class="device-pill" id="device-pill"><svg><use href="#i-device"/></svg><span id="device-name">No device</span></button>
+        <label class="vol"><svg><use href="#i-vol"/></svg><input type="range" id="volume" min="0" max="100" value="60" aria-label="Volume"></label>
+      </div>
+    </footer>
+
+    <!-- Sheets -->
+    <section class="sheet glass-panel" id="sheet-search" hidden aria-label="Search">
+      <div class="sheet-head">
+        <div class="search-box"><svg><use href="#i-search"/></svg><input id="q" type="search" placeholder="Songs or albums" autocomplete="off" enterkeyhint="search"></div>
+        <button class="glass-btn xs" data-close aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="sheet-body" id="search-results"><p class="muted center">Search Spotify for songs and albums.</p></div>
+    </section>
+
+    <section class="sheet glass-panel" id="sheet-library" hidden aria-label="Library">
+      <div class="sheet-head">
+        <div class="tabs" role="tablist">
+          <button role="tab" class="tab active" data-tab="playlists">Playlists</button>
+          <button role="tab" class="tab" data-tab="albums">Albums</button>
+          <button role="tab" class="tab" data-tab="liked">Liked Songs</button>
+        </div>
+        <button class="glass-btn xs" data-close aria-label="Close"><svg><use href="#i-close"/></svg></button>
+      </div>
+      <div class="sheet-body" id="library-body"></div>
+    </section>
+
+    <section class="popover glass-panel" id="pop-devices" hidden aria-label="Devices">
+      <div class="pop-title">Play on</div>
+      <div id="device-list"></div>
+    </section>
+
+    <section class="popover glass-panel" id="pop-account" hidden aria-label="Account">
+      <div class="pop-title" id="account-name">Signed in</div>
+      <button class="row-btn" id="btn-flip"><svg><use href="#i-flip"/></svg>Flip the disc</button>
+      <button class="row-btn" id="btn-signout">Sign out</button>
+    </section>
+  </div>
+
+  <div id="toasts" aria-live="assertive"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
