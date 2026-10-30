@@ -2,7 +2,7 @@
 // A Client ID is public by design. NEVER put a Client Secret in this project:
 // this app uses Authorization Code with PKCE, which needs no secret.
 // Leave empty to enter it on the setup screen instead (stored only in this browser).
-export const CLIENT_ID = '';
+export const CLIENT_ID = '9edae3a5d4744b07901508fc41a792ae';
 
 // Minimum scopes for the features this app actually has:
 //  streaming, user-read-email, user-read-private  -> required by the Web Playback SDK
