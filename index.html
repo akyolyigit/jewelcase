@@ -89,17 +89,17 @@
         <div id="art-empty" class="art-empty"><span class="brand-disc lg"></span></div>
       </a>
       <div class="meta">
-        <a id="np-title" class="np-title" target="_blank" rel="noopener">Nothing playing</a>
-        <div id="np-artists" class="np-artists">Pick something from your shelf</div>
+        <a id="np-title" data-np="title" class="np-title" target="_blank" rel="noopener">Nothing playing</a>
+        <div id="np-artists" data-np="artists" class="np-artists">Pick something from your shelf</div>
         <a id="np-album" class="np-album" target="_blank" rel="noopener"></a>
         <div class="meta-actions">
-          <button class="glass-btn xs heart" id="btn-heart" aria-label="Save to Your Library" aria-pressed="false" disabled><svg><use href="#i-heart"/></svg></button>
-          <a class="open-spotify" id="open-spotify" target="_blank" rel="noopener"><svg><use href="#spotify-icon"/></svg>Open in Spotify</a>
+          <button class="glass-btn xs heart" id="btn-heart" data-np="heart" aria-label="Save to Your Library" aria-pressed="false" disabled><svg><use href="#i-heart"/></svg></button>
+          <a class="open-spotify" id="open-spotify" data-np="open" target="_blank" rel="noopener"><svg><use href="#spotify-icon"/></svg>Open in Spotify</a>
         </div>
       </div>
     </aside>
 
-    <div class="disc-hint" id="disc-hint">Drag the disc to scratch · double-tap to flip</div>
+    <div class="disc-hint" id="disc-hint" hidden>Drag the disc to scratch · double-tap to flip</div>
 
     <!-- Shelf arrows + hover card -->
     <button class="glass-btn sm shelf-nav left" id="shelf-left" aria-label="Scroll shelf left"><svg><use href="#i-left"/></svg></button>
@@ -111,6 +111,14 @@
 
     <!-- Transport deck -->
     <footer class="deck glass-panel">
+      <div class="deck-meta">
+        <div style="min-width:0">
+          <a class="np-title deck-title" data-np="title" target="_blank" rel="noopener">Nothing playing</a>
+          <div class="np-artists" data-np="artists">Pick something from your stack</div>
+        </div>
+        <button class="glass-btn xs heart" data-np="heart" aria-label="Save to Your Library" aria-pressed="false" disabled><svg><use href="#i-heart"/></svg></button>
+        <a class="open-spotify icon-only" data-np="open" target="_blank" rel="noopener" aria-label="Open in Spotify" title="Open in Spotify"><svg><use href="#spotify-icon"/></svg></a>
+      </div>
       <div class="progress">
         <span class="time" id="t-pos">0:00</span>
         <div class="groove"><div class="fill" id="fill"></div><input type="range" id="seek" min="0" max="1000" value="0" aria-label="Seek"></div>

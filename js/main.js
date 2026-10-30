@@ -134,7 +134,7 @@ function startApp(isDemo) {
   if (demo) { scene.setShelf(demoShelf()); renderAccount({ display_name: 'Demo listener' }); }
   else { loadShelf(); Spotify.me().then(renderAccount).catch(reportError); }
   requestAnimationFrame(tick);
-  setTimeout(() => $('#disc-hint').style.opacity = 0, 9000);
+  $('#disc-hint').hidden = false; setTimeout(() => $('#disc-hint').style.opacity = 0, 9000);
 }
 
 window.addEventListener('spotify:ratelimited', e => toast(`Spotify asked us to slow down. Retrying in ${Math.ceil(e.detail.delay / 1000)}s…`, { ms: Math.min(8000, e.detail.delay + 500) }));
@@ -170,15 +170,14 @@ function renderState(s) {
   if (art) { if (artEl.src !== art) artEl.src = art; $('#art-link').classList.add('has-art'); artEl.alt = `Cover of ${item.album?.name || item.name}`; }
   else { artEl.removeAttribute('src'); $('#art-link').classList.remove('has-art'); }
   $('#art-link').href = item.album?.url || item.url || ''; if (!item.album?.url && !item.url) $('#art-link').removeAttribute('href');
-  const t = $('#np-title'); t.textContent = item.name; t.title = item.name; item.url ? t.href = item.url : t.removeAttribute('href');
-  const ar = $('#np-artists'); ar.replaceChildren(...(item.artists || []).flatMap((a, i) => [i ? ', ' : '', a.url ? h('a', { href: a.url, target: '_blank', rel: 'noopener' }, a.name) : a.name]));
-  ar.title = artistNames(item.artists);
+  for (const t of $$('[data-np=title]')) { t.textContent = item.name; t.title = item.name; item.url ? t.href = item.url : t.removeAttribute('href'); }
+  for (const ar of $$('[data-np=artists]')) { ar.replaceChildren(...(item.artists || []).flatMap((a, i) => [i ? ', ' : '', a.url ? h('a', { href: a.url, target: '_blank', rel: 'noopener' }, a.name) : a.name])); ar.title = artistNames(item.artists); }
   const al = $('#np-album'); al.textContent = item.album?.name || ''; al.title = item.album?.name || ''; item.album?.url ? al.href = item.album.url : al.removeAttribute('href');
-  const os = $('#open-spotify'); item.url ? os.href = item.url : os.removeAttribute('href');
+  for (const os of $$('[data-np=open]')) item.url ? os.href = item.url : os.removeAttribute('href');
   document.title = `${item.name} · ${artistNames(item.artists)} — Jewelcase`;
 
   const key = item.album?.uri || item.uri;
-  const np = { key, trackName: item.name, albumName: item.album?.name, artists: artistNames(item.artists), kind: item.type === 'episode' ? 'Podcast' : 'Album', palette: item.palette || paletteCache.get(art) || null };
+  const np = { key, art, trackName: item.name, albumName: item.album?.name, artists: artistNames(item.artists), kind: item.type === 'episode' ? 'Podcast' : 'Album', palette: item.palette || paletteCache.get(art) || null };
   nowNp = np;
   scene.setNowPlaying(np);
   scene.setHighlight(s.context || key);
@@ -186,11 +185,12 @@ function renderState(s) {
   if (!item.palette) samplePalette(art, key).then(p => { if (nowNp !== np) return; np.palette = p; applyCssPalette(p); scene.refreshPrint(np); });
 
   // heart state (only for tracks / episodes with URIs)
-  const heart = $('#btn-heart');
-  heart.disabled = demo || !item.uri;
-  heart.setAttribute('aria-pressed', String(!!likedKnown.get(item.uri)));
+  const hearts = $$('[data-np=heart]');
+  const setHeart = v => hearts.forEach(b => b.setAttribute('aria-pressed', String(!!v)));
+  hearts.forEach(b => b.disabled = demo || !item.uri);
+  setHeart(likedKnown.get(item.uri));
   if (!demo && item.uri && !likedKnown.has(item.uri)) {
-    Spotify.libraryContains([item.uri]).then(r => { likedKnown.set(item.uri, !!r?.[0]); if (player.state.item?.uri === item.uri) heart.setAttribute('aria-pressed', String(!!r?.[0])); }).catch(reportError);
+    Spotify.libraryContains([item.uri]).then(r => { likedKnown.set(item.uri, !!r?.[0]); if (player.state.item?.uri === item.uri) setHeart(r?.[0]); }).catch(reportError);
   }
 }
 
@@ -215,12 +215,13 @@ $('#btn-repeat').addEventListener('click', () => player.cycleRepeat());
 $('#seek').addEventListener('input', () => { seeking = true; });
 $('#seek').addEventListener('change', () => { seeking = false; player.seek($('#seek').value / 1000 * (player.state.duration || 0)); });
 $('#volume').addEventListener('input', () => { clearTimeout(volTimer); volTimer = setTimeout(() => player.setVolume(+$('#volume').value), 250); });
-$('#btn-heart').addEventListener('click', async () => {
+const setHearts = v => $$('[data-np=heart]').forEach(b => b.setAttribute('aria-pressed', String(!!v)));
+$$('[data-np=heart]').forEach(btn => btn.addEventListener('click', async () => {
   const uri = player.state.item?.uri; if (!uri) return;
-  const was = !!likedKnown.get(uri); likedKnown.set(uri, !was); $('#btn-heart').setAttribute('aria-pressed', String(!was));
+  const was = !!likedKnown.get(uri); likedKnown.set(uri, !was); setHearts(!was);
   try { was ? await Spotify.libraryRemove([uri]) : await Spotify.librarySave([uri]); toast(was ? 'Removed from Your Library' : 'Saved to Your Library', { ms: 2200 }); }
-  catch (e) { likedKnown.set(uri, was); $('#btn-heart').setAttribute('aria-pressed', String(was)); reportError(e); }
-});
+  catch (e) { likedKnown.set(uri, was); setHearts(was); reportError(e); }
+}));
 $('#shelf-left').addEventListener('click', () => scene.scrollShelf(-1));
 $('#shelf-right').addEventListener('click', () => scene.scrollShelf(1));
 document.addEventListener('keydown', e => {
@@ -237,8 +238,8 @@ async function loadShelf() {
     const [albums, playlists, liked] = await Promise.all([Spotify.savedAlbums(20), Spotify.myPlaylists(20), Spotify.savedTracks(1)]);
     const items = [];
     if (liked?.total) items.push({ key: 'liked', type: 'liked', title: 'Liked Songs', subtitle: `${liked.total} songs`, kind: 'Collection', palette: ['#8f7cff', '#2a1f6b', '#cfe8ff'] });
-    for (const it of albums?.items || []) { const a = it.album; if (!a) continue; items.push({ key: a.uri, type: 'album', uri: a.uri, id: a.id, title: a.name, subtitle: artistNames(a.artists), kind: 'Album', images: a.images, url: a.external_urls?.spotify }); }
-    for (const p of playlists?.items || []) { if (!p) continue; items.push({ key: p.uri, type: 'playlist', uri: p.uri, id: p.id, title: p.name, subtitle: `by ${p.owner?.display_name || 'Spotify'}`, kind: 'Playlist', images: p.images, url: p.external_urls?.spotify }); }
+    for (const it of albums?.items || []) { const a = it.album; if (!a) continue; items.push({ key: a.uri, type: 'album', uri: a.uri, id: a.id, title: a.name, subtitle: artistNames(a.artists), kind: 'Album', images: a.images, art: pickImage(a.images, 300), url: a.external_urls?.spotify }); }
+    for (const p of playlists?.items || []) { if (!p) continue; items.push({ key: p.uri, type: 'playlist', uri: p.uri, id: p.id, title: p.name, subtitle: `by ${p.owner?.display_name || 'Spotify'}`, kind: 'Playlist', images: p.images, art: pickImage(p.images, 300), url: p.external_urls?.spotify }); }
     if (!items.length) { toast('Your shelf is empty. Save some albums in Spotify, or use Search.', { ms: 7000 }); return; }
     scene.setShelf(items);
     // colour each case from its cover, a few at a time
@@ -254,7 +255,9 @@ function showTip(item, pos) {
   const img = pickImage(item.images, 160);
   $('#tip-art').hidden = !img; if (img) { $('#tip-art').src = img; $('#tip-art').alt = `Cover of ${item.title}`; }
   $('#tip-title').textContent = item.title; $('#tip-sub').textContent = `${item.kind} · ${item.subtitle || ''}`;
-  tip.style.left = Math.max(150, Math.min(innerWidth - 150, pos.x)) + 'px'; tip.style.top = (pos.y - 10) + 'px';
+  tip.classList.toggle('side', !!pos.side);
+  if (pos.side) { tip.style.left = pos.x + 'px'; tip.style.top = pos.y + 'px'; }
+  else { tip.style.left = Math.max(150, Math.min(innerWidth - 150, pos.x)) + 'px'; tip.style.top = (pos.y - 10) + 'px'; }
   tip.hidden = false;
 }
 

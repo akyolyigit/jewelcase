@@ -28,7 +28,7 @@ To run it locally, use `python3 -m http.server 8888 --bind 127.0.0.1`, open `htt
 - **Rate limits:** a 429 response honours `Retry-After`, with exponential backoff and jitter as a fallback. A shared cool-down gate pauses all requests. Polling slows when paused and stops when the tab is hidden.
 - **Endpoints:** `/playlists/{id}/items` (not `/tracks`) and `/me/library*` (not the type-specific save/remove/contains endpoints). Search uses `limit=10`.
 - **Errors:** Spotify's own error message or reason (e.g. `NO_ACTIVE_DEVICE`, `PREMIUM_REQUIRED`) is shown to the user.
-- **Design guidelines:** album artwork is shown flat, uncropped, with rounded corners, and never animated, distorted or overlaid. The 3D discs and inserts are original typographic prints that use Spotify's metadata plus colours sampled from the cover. A Spotify logo and "Open in Spotify" links appear throughout.
+- **Design guidelines (deliberate deviation):** by the owner's choice, this personal build prints the album cover inside the 3D jewel case and on the spinning CD. That goes against Spotify's artwork rules (no cropping, animating or overlaying artwork). Revert it before ever applying for extended quota. A Spotify logo and "Open in Spotify" links still appear throughout.
 - **Developer Terms:** no Spotify content is stored or cached beyond the current view, and nothing is used to train ML models.
 
 ## Credits

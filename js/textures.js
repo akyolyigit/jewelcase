@@ -1,7 +1,6 @@
-// Procedural print designs for the 3D props.
-// Per Spotify's design guidelines, album artwork is never printed onto (or animated with)
-// the 3D objects. Discs and inserts are original typographic designs that use the
-// metadata Spotify provides plus a colour palette sampled from the cover.
+// Print designs for the 3D props: cover-art prints (owner's choice — note this deviates from
+// Spotify's artwork guidelines) plus procedural typographic fallbacks used while art loads
+// or when no artwork is available.
 import * as THREE from 'three';
 
 const DISPLAY = '"Fraunces", "Iowan Old Style", Georgia, serif';
@@ -205,4 +204,42 @@ export function shadowTexture(size = 256) {
   grd.addColorStop(0, 'rgba(0,0,0,0.55)'); grd.addColorStop(0.55, 'rgba(0,0,0,0.18)'); grd.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = grd; g.fillRect(0, 0, size, size);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+
+/* ---------- cover-art prints (user preference: cover on the CD and in the case) ---------- */
+const loader = new THREE.ImageLoader(); loader.setCrossOrigin('anonymous');
+const imgCache = new Map(); // in-memory for this session only
+export function loadImage(url) {
+  if (!url) return Promise.reject(new Error('no url'));
+  if (!imgCache.has(url)) {
+    const p = loader.loadAsync(url);
+    p.catch(() => imgCache.delete(url));
+    imgCache.set(url, p);
+    if (imgCache.size > 80) imgCache.delete(imgCache.keys().next().value);
+  }
+  return imgCache.get(url);
+}
+
+/** Square cover texture for a jewel-case insert. */
+export function coverTexture(img) {
+  const t = new THREE.Texture(img); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.needsUpdate = true;
+  return t;
+}
+
+/** Cover art printed on the disc's label ring (the square art spans the disc's diameter). */
+export function discArtTexture(img, palette, size = 1024) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const g = c.getContext('2d');
+  const cx = size / 2, px = r => (r / 0.6) * (size / 2);
+  const rIn = px(0.225), rOut = px(0.592);
+  g.save();
+  g.beginPath(); g.arc(cx, cx, rOut, 0, Math.PI * 2); g.arc(cx, cx, rIn, 0, Math.PI * 2, true); g.clip('evenodd');
+  g.drawImage(img, 0, 0, size, size);
+  g.restore();
+  // printed edge rings, like a real picture disc
+  g.lineWidth = 3; g.strokeStyle = 'rgba(255,255,255,0.35)';
+  g.beginPath(); g.arc(cx, cx, rIn + 2, 0, Math.PI * 2); g.stroke();
+  g.strokeStyle = palette?.[2] || 'rgba(255,255,255,0.5)'; g.globalAlpha = 0.6;
+  g.beginPath(); g.arc(cx, cx, rIn + 10, 0, Math.PI * 2); g.stroke();
+  return canvasTex(c);
 }

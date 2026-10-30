@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/RoundedBoxGeometry.js';
-import { insertTexture, labelTexture, grooveAnisotropyTexture, shadowTexture, paletteFromSeed } from './textures.js';
+import { insertTexture, labelTexture, grooveAnisotropyTexture, shadowTexture, paletteFromSeed, loadImage, coverTexture, discArtTexture } from './textures.js';
 
 const DISC_R = 0.6;
 const damp = THREE.MathUtils.damp;
@@ -60,7 +60,7 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
   scene.environmentIntensity = 0.9;
 
   const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 50);
-  const camTarget = new THREE.Vector3(0, -0.12, 0);
+  const camTarget = new THREE.Vector3(0, 0, 0);
 
   /* ---------- background ---------- */
   const bgUniforms = {
@@ -104,7 +104,7 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
   const hubF = new THREE.Mesh(discRing(0.075, 0.17, 64), discClear); hubF.position.z = T * 0.9; discSpin.add(hubF);
   const hubB = hubF.clone(); hubB.rotation.y = Math.PI; hubB.position.z = -T * 0.9; discSpin.add(hubB);
   const stack = new THREE.Mesh(discRing(0.17, 0.225, 64), discMirror); stack.position.z = T * 1.02; discSpin.add(stack);
-  const labelMat = new THREE.MeshStandardMaterial({ transparent: true, roughness: 0.55, metalness: 0, envMapIntensity: 0.45, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
+  const labelMat = new THREE.MeshStandardMaterial({ transparent: true, roughness: 0.38, metalness: 0, envMapIntensity: 0.55, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
   const label = new THREE.Mesh(discRing(0.225, 0.59), labelMat); label.position.z = T + 0.0006; discSpin.add(label);
   const edge = new THREE.Mesh(new THREE.CylinderGeometry(DISC_R, DISC_R, T * 2, 128, 1, true), discMirror); edge.rotation.x = Math.PI / 2; discSpin.add(edge);
   const holeEdge = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, T * 2, 48, 1, true), discClear); holeEdge.rotation.x = Math.PI / 2; discSpin.add(holeEdge);
@@ -131,7 +131,7 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
   const lidPivot = new THREE.Group(); lidPivot.position.set(-W / 2, 0, 0.03); jewel.add(lidPivot);
   const lid = new THREE.Group(); lid.position.x = W / 2; lidPivot.add(lid);
   const lidGlass = new THREE.Mesh(new RoundedBoxGeometry(W, H, 0.022, 3, 0.008), glass); lid.add(lidGlass);
-  const insertMat = new THREE.MeshPhysicalMaterial({ roughness: 0.62, metalness: 0, sheen: 0.3, side: THREE.DoubleSide });
+  const insertMat = new THREE.MeshPhysicalMaterial({ roughness: 0.5, metalness: 0, side: THREE.DoubleSide });
   const insert = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), insertMat); insert.position.set(0.05, 0, -0.0135); lid.add(insert);
   // insert back (inside of booklet)
   const insertBack = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 1.2), new THREE.MeshStandardMaterial({ color: '#f1ece2', roughness: 0.9 }));
@@ -180,35 +180,66 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
 
   function applyPrint(np) {
     labelTex?.dispose(); insertTex?.dispose();
-    labelTex = labelTexture({ track: np.trackName, album: np.albumName, artists: np.artists, palette: np.palette, seed: np.key });
-    insertTex = insertTexture({ title: np.albumName || np.trackName, subtitle: np.artists, kind: np.kind || 'Album', palette: np.palette, seed: np.key });
+    if (np.img) {
+      labelTex = discArtTexture(np.img, np.palette);
+      insertTex = coverTexture(np.img);
+    } else {
+      labelTex = labelTexture({ track: np.trackName, album: np.albumName, artists: np.artists, palette: np.palette, seed: np.key });
+      insertTex = insertTexture({ title: np.albumName || np.trackName, subtitle: np.artists, kind: np.kind || 'Album', palette: np.palette, seed: np.key });
+    }
     labelMat.map = labelTex; labelMat.needsUpdate = true;
     insertMat.map = insertTex; insertMat.needsUpdate = true;
     applyPalette(np.palette);
   }
+  /** Resolve cover art for np (or give up after a short wait so the swap never stalls). */
+  function prepareArt(np) {
+    if (!np.art || np.img || np.artPending) return;
+    np.artPending = true; np.artDeadline = performance.now() + 2500;
+    loadImage(np.art).then(img => {
+      np.img = img; np.artPending = false;
+      if (np.key === st.currentKey && st.swapPending !== np) applyPrint(np);
+    }).catch(() => { np.artPending = false; });
+  }
 
   /* ---------- layout ---------- */
-  let layout = { portrait: false };
+  let layout = { portrait: false, vertical: false, discOutX: 1.12, dist: 6 };
   function resize() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     const portrait = w / h < 0.95;
     layout.portrait = portrait;
-    // keep the composition's width in frame
-    const sceneHalfW = portrait ? 1.35 : 2.25;
+    layout.vertical = !portrait;             // desktop / landscape tablet: album stack on the left
     const halfFovV = THREE.MathUtils.degToRad(camera.fov / 2);
+    const sceneHalfW = portrait ? 1.3 : 3.0;
     const distW = sceneHalfW / (Math.tan(halfFovV) * camera.aspect);
-    const distH = (portrait ? 2.25 : 1.75) / Math.tan(halfFovV);
+    const distH = (portrait ? 2.3 : 1.85) / Math.tan(halfFovV);
     layout.dist = Math.max(distW, distH);
+    const halfH = Math.tan(halfFovV) * layout.dist, halfW = halfH * camera.aspect;
+    layout.halfW = halfW; layout.halfH = halfH;
     camera.updateProjectionMatrix();
     bgUniforms.uAspect.value = camera.aspect;
-    hero.position.set(portrait ? -0.42 : 0.12, portrait ? 0.3 : 0.16, 0);
-    hero.rotation.y = portrait ? 0.22 : 0.32;
-    hero.scale.setScalar(portrait ? 0.82 : 1);
-    shelf.position.set(portrait ? 0 : 0.55, portrait ? -0.98 : -1.06, 0.35);
-    shelf.scale.setScalar(portrait ? 0.92 : 1);
-    shadow.position.set(hero.position.x + 0.4 * hero.scale.x, hero.position.y - 0.8 * hero.scale.x, 0.05);
+    if (portrait) {
+      layout.discOutX = 0.78;
+      hero.scale.setScalar(Math.min(1.0, (halfW * 2 * 0.94) / 2.95));
+      hero.position.set(-0.36 * hero.scale.x, 0.32, 0);
+      hero.rotation.y = 0.2;
+      shelf.position.set(0, -1.02, 0.35); shelf.scale.setScalar(0.92); shelf.rotation.set(0, 0, 0);
+    } else {
+      layout.discOutX = 1.05;
+      // big hero: case + disc fill the space right of the album stack, above the deck
+      const avail = halfW * 2 - 1.55;                 // width left after the stack column
+      const sc = Math.min(1.85, avail / 3.05, (halfH * 2 - 1.0) / 1.38);
+      hero.scale.setScalar(sc);
+      const leftEdge = -halfW + 1.55;                 // stack column width in world units
+      hero.position.set(leftEdge + (0.78 + 0.05) * sc, 0.34, 0);
+      hero.rotation.y = 0.26;
+      shelf.position.set(-halfW + 0.72, 0, 0.4); shelf.scale.setScalar(1); shelf.rotation.set(0, 0, 0);
+    }
+    plank.visible = plankEdge.visible = !layout.vertical;
+    if (typeof clampShelf === 'function' && shelfItems.length) clampShelf();
+    shadow.position.set(hero.position.x + 0.45 * hero.scale.x, hero.position.y - 0.8 * hero.scale.x, 0.05);
+    shadow.scale.setScalar(hero.scale.x);
   }
   addEventListener('resize', resize);
 
@@ -227,7 +258,7 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
     return null;
   }
   function screenPos(obj) {
-    const v = new THREE.Vector3(); obj.getWorldPosition(v); v.y += 0.26; v.project(camera);
+    const v = new THREE.Vector3(); obj.getWorldPosition(v); if (layout.vertical) v.x += 0.34; else v.y += 0.26; v.project(camera);
     const r = canvas.getBoundingClientRect();
     return { x: r.left + (v.x * 0.5 + 0.5) * r.width, y: r.top + (-v.y * 0.5 + 0.5) * r.height };
   }
@@ -246,14 +277,15 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
       st.spin -= d * (st.flip > 0.5 ? -1 : 1); st.dragVel = -d * 60; st.dragAngle = a; return;
     }
     if (dragShelf) {
-      const dx = e.clientX - dragShelf.x; dragShelf.x = e.clientX; dragShelf.moved += Math.abs(dx);
-      shelfScrollTarget -= dx / canvas.clientWidth * 5.5; clampShelf(); return;
+      if (layout.vertical) { const dy = e.clientY - dragShelf.y; dragShelf.y = e.clientY; shelfScrollTarget += dy / canvas.clientHeight * 6; }
+      else { const dx = e.clientX - dragShelf.x; dragShelf.x = e.clientX; shelfScrollTarget -= dx / canvas.clientWidth * 5.5; }
+      clampShelf(); return;
     }
     const p = pick(e.clientX, e.clientY);
     const idx = p?.type === 'shelf' ? p.index : null;
     if (idx !== st.hover) {
       st.hover = idx;
-      onShelfHover?.(idx === null ? null : shelfItems[idx].data, idx === null ? null : screenPos(shelfItems[idx].group));
+      onShelfHover?.(idx === null ? null : shelfItems[idx].data, idx === null ? null : { ...screenPos(shelfItems[idx].group), side: layout.vertical });
     }
     canvas.style.cursor = p ? (p.type === 'disc' ? 'grab' : 'pointer') : 'default';
   });
@@ -263,8 +295,8 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
     if (p?.type === 'disc') {
       st.dragging = true; const c = discScreenCenter(); st.dragAngle = Math.atan2(e.clientY - c.y, e.clientX - c.x);
       canvas.setPointerCapture(e.pointerId); canvas.style.cursor = 'grabbing';
-    } else if (e.clientY > canvas.getBoundingClientRect().top + canvas.clientHeight * 0.55) {
-      dragShelf = { x: e.clientX, moved: 0 }; canvas.setPointerCapture(e.pointerId);
+    } else if (inShelfZone(e)) {
+      dragShelf = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId);
     }
   });
   canvas.addEventListener('pointerup', e => {
@@ -281,11 +313,19 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
   });
   canvas.addEventListener('pointerleave', () => { if (st.hover !== null) { st.hover = null; onShelfHover?.(null); } });
   canvas.addEventListener('wheel', e => {
-    if (e.clientY < canvas.getBoundingClientRect().top + canvas.clientHeight * 0.55) return;
+    if (!inShelfZone(e)) return;
     shelfScrollTarget += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * 0.004; clampShelf(); e.preventDefault();
   }, { passive: false });
 
-  function clampShelf() { shelfScrollTarget = THREE.MathUtils.clamp(shelfScrollTarget, 0, Math.max(0, (shelfItems.length - 1) * SPACING)); }
+  function inShelfZone(e) {
+    const r = canvas.getBoundingClientRect();
+    return layout.vertical ? e.clientX < r.left + r.width * 0.22 : e.clientY > r.top + r.height * 0.55;
+  }
+  function clampShelf() {
+    let max = (shelfItems.length - 1) * SPACING;
+    if (layout.vertical) { const fit = Math.floor((layout.halfH * 2 - 1.04) / 0.52); max = Math.max(0, shelfItems.length - fit) * SPACING; }
+    shelfScrollTarget = THREE.MathUtils.clamp(shelfScrollTarget, 0, Math.max(0, max));
+  }
 
   /* ---------- animation loop ---------- */
   let last = performance.now();
@@ -302,8 +342,8 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
 
     // camera parallax
     const d = layout.dist || 6;
-    camera.position.x = damp(camera.position.x, st.mouse.x * 0.35, 2.5, dt);
-    camera.position.y = damp(camera.position.y, 0.15 + st.mouse.y * 0.2, 2.5, dt);
+    camera.position.x = damp(camera.position.x, st.mouse.x * 0.25, 2.5, dt);
+    camera.position.y = damp(camera.position.y, 0.05 + st.mouse.y * 0.15, 2.5, dt);
     camera.position.z = d;
     camera.lookAt(camTarget);
 
@@ -313,13 +353,13 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
     const moving = Math.abs(st.out - want) > 0.002;
     st.open = damp(st.open, moving ? 1 : 0, moving ? 5 : 3, dt);
     if (moving && st.open > 0.82) { const step = dt / 1.05; st.out += THREE.MathUtils.clamp(want - st.out, -step, step); }
-    if (st.swapPending && st.out <= 0.002) { applyPrint(st.swapPending); st.swapPending = null; }
+    if (st.swapPending && st.out <= 0.002 && (!st.swapPending.artPending || now > st.swapPending.artDeadline)) { applyPrint(st.swapPending); st.swapPending = null; }
 
     lidPivot.rotation.y = -1.38 * ease(THREE.MathUtils.clamp(st.open, 0, 1));
     const o = ease(THREE.MathUtils.clamp(st.out, 0, 1));
     const lift = Math.sin(Math.PI * Math.min(1, st.out * 1.4)) * 0.45;
     const bob = Math.sin(st.t * 1.3) * 0.018 * o;
-    disc.position.set(0.03 + 1.12 * o, 0.03 * o + bob, 0.012 + 0.72 * o + lift);
+    disc.position.set(0.03 + layout.discOutX * o, 0.03 * o + bob, 0.012 + 0.72 * o + lift);
     disc.rotation.set(Math.sin(st.t * 0.7) * 0.035 * o, -0.42 * o, 0);
 
     // spin with inertia (≈ 0.55 rev/s when playing)
@@ -336,20 +376,33 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
     jewel.position.y = Math.sin(st.t * 0.8) * 0.012;
     rimA.intensity = 5 + (st.playing ? Math.sin(st.t * 2.1) * 1.2 + 1.5 : 0);
 
-    // shelf coverflow
+    // shelf coverflow (horizontal on phones, vertical stack on desktop)
     shelfScroll = damp(shelfScroll, shelfScrollTarget, 6, dt);
     for (const it of shelfItems) {
-      const x = it.index * SPACING - shelfScroll;
-      const dist = Math.abs(x);
       const hovered = st.hover === it.index;
       const active = it.data.key === st.highlightKey;
       it.lift = damp(it.lift, hovered ? 1 : active ? 0.5 : 0, 8, dt);
-      it.group.position.set(x, 0.0175 + MINI * H / 2 + it.lift * 0.08, -dist * 0.06);
-      it.group.rotation.y = THREE.MathUtils.clamp(-x * 0.28, -0.7, 0.7) * (1 - it.lift * 0.8);
-      it.group.rotation.x = -0.06 * it.lift;
-      const vis = THREE.MathUtils.clamp(1 - (dist - 2.6) / 0.8, 0, 1);
-      it.group.scale.setScalar(MINI * (0.75 + 0.25 * vis));
-      it.group.visible = vis > 0.01;
+      if (layout.vertical) {
+        const SP = 0.52, MS = 0.36;
+        const topY = layout.halfH - 0.62, botY = -layout.halfH + 0.42;
+        const midY = (topY + botY) / 2;
+        const y = topY - (it.index * SP - shelfScroll * (SP / SPACING));
+        const dist = Math.abs(y - midY);
+        it.group.position.set(0.16 * it.lift, y, -dist * 0.12 + it.lift * 0.12);
+        it.group.rotation.set(THREE.MathUtils.clamp((y - midY) * 0.22, -0.5, 0.5) * (1 - it.lift * 0.8), 0.42 * (1 - it.lift * 0.7), 0);
+        const over = Math.max(y - topY, botY - y, 0);
+        const vis = THREE.MathUtils.clamp(1 - over / 0.35, 0, 1);
+        it.group.scale.setScalar(MS * (0.8 + 0.2 * vis));
+        it.group.visible = vis > 0.01;
+      } else {
+        const x = it.index * SPACING - shelfScroll;
+        const dist = Math.abs(x);
+        it.group.position.set(x, 0.0175 + MINI * H / 2 + it.lift * 0.08, -dist * 0.06);
+        it.group.rotation.set(-0.06 * it.lift, THREE.MathUtils.clamp(-x * 0.28, -0.7, 0.7) * (1 - it.lift * 0.8), 0);
+        const vis = THREE.MathUtils.clamp(1 - (dist - 2.6) / 0.8, 0, 1);
+        it.group.scale.setScalar(MINI * (0.75 + 0.25 * vis));
+        it.group.visible = vis > 0.01;
+      }
     }
     renderer.render(scene, camera);
   }
@@ -363,12 +416,13 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
     setNowPlaying(np) {
       if (!np) { st.currentKey = null; return; }
       if (!np.palette) np.palette = paletteFromSeed(np.key);
+      prepareArt(np);
       if (st.currentKey === null && !labelTex) { applyPrint(np); }
       else if (np.key !== st.currentKey) { st.swapPending = np; }
       else { applyPrint(np); } // same album, new track title on the label
       st.currentKey = np.key;
     },
-    refreshPrint(np) { if (np && np.key === st.currentKey && !st.swapPending) applyPrint(np); },
+    refreshPrint(np) { if (np && np.key === st.currentKey && !st.swapPending) applyPrint(np); else if (np === st.swapPending) {/* applied on swap */} },
     setPlaying(p) { st.playing = !!p; },
     setHighlight(key) { st.highlightKey = key; },
     /** items: [{key, title, subtitle, kind, palette, ...data}] */
@@ -378,18 +432,19 @@ export function createScene(canvas, { onShelfPick, onShelfHover, onDiscFlip } = 
         const group = new THREE.Group(); group.userData.shelfIndex = index;
         const trayM = new THREE.Mesh(miniTrayGeo, plasticDark);
         const tex = insertTexture({ title: data.title, subtitle: data.subtitle, kind: data.kind, palette: data.palette || paletteFromSeed(data.key), seed: data.key }, 512);
-        const front = new THREE.Mesh(miniFrontGeo, new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.6 })); front.position.set(0.05, 0, 0.047);
+        const front = new THREE.Mesh(miniFrontGeo, new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.5 })); front.position.set(0.05, 0, 0.047);
+        if (data.art) loadImage(data.art).then(img => { const it = shelfItems.find(x => x.data === data); if (!it) return; it.tex?.dispose(); it.tex = coverTexture(img); it.hasArt = true; it.front.material.map = it.tex; it.front.material.needsUpdate = true; }).catch(() => {});
         const g = new THREE.Mesh(miniGlassGeo, miniGlass); g.position.z = 0.056;
         group.add(trayM, front, g);
         shelfRow.add(group);
         shelfItems.push({ group, front, tex, data, index, lift: 0 });
       });
-      shelfScrollTarget = shelfScroll = Math.min(3, Math.floor((items.length - 1) / 2)) * SPACING;
+      shelfScrollTarget = shelfScroll = layout.vertical ? 0 : Math.min(3, Math.floor((items.length - 1) / 2)) * SPACING;
       clampShelf();
     },
     updateShelfPalette(key, palette) {
       const it = shelfItems.find(s => s.data.key === key); if (!it) return;
-      it.data.palette = palette; it.tex.dispose();
+      it.data.palette = palette; if (it.hasArt) return; it.tex.dispose();
       it.tex = insertTexture({ title: it.data.title, subtitle: it.data.subtitle, kind: it.data.kind, palette, seed: it.data.key }, 512);
       it.front.material.map = it.tex; it.front.material.needsUpdate = true;
     },
